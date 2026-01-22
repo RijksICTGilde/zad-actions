@@ -81,7 +81,18 @@ runs:
       run: |
         echo "Deleting ZAD deployment: $DEPLOYMENT_NAME from project: $PROJECT_ID"
 
+        # Validate inputs (alphanumeric, hyphens, underscores only)
+        if ! echo "$PROJECT_ID" | grep -qE '^[a-zA-Z0-9_-]+$'; then
+          echo "Error: project-id contains invalid characters"
+          exit 1
+        fi
+        if ! echo "$DEPLOYMENT_NAME" | grep -qE '^[a-zA-Z0-9_-]+$'; then
+          echo "Error: deployment-name contains invalid characters"
+          exit 1
+        fi
+
         RESPONSE=$(curl -s -w "\n%{http_code}" \
+          --max-time 60 \
           -X DELETE \
           -H "X-API-Key: $ZAD_API_KEY" \
           "$API_BASE_URL/projects/$PROJECT_ID/$DEPLOYMENT_NAME")

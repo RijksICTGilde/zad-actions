@@ -89,8 +89,23 @@ runs:
           echo "Cloning config from: $CLONE_FROM"
         fi
 
-        # Make the API call
+        # Validate inputs (alphanumeric, hyphens, underscores only)
+        if ! echo "$PROJECT_ID" | grep -qE '^[a-zA-Z0-9_-]+$'; then
+          echo "Error: project-id contains invalid characters"
+          exit 1
+        fi
+        if ! echo "$DEPLOYMENT_NAME" | grep -qE '^[a-zA-Z0-9_-]+$'; then
+          echo "Error: deployment-name contains invalid characters"
+          exit 1
+        fi
+        if ! echo "$COMPONENT" | grep -qE '^[a-zA-Z0-9_-]+$'; then
+          echo "Error: component contains invalid characters"
+          exit 1
+        fi
+
+        # Make the API call (60s timeout)
         RESPONSE=$(curl -s -w "\n%{http_code}" \
+          --max-time 60 \
           -X POST \
           -H "X-API-Key: $ZAD_API_KEY" \
           -H "Content-Type: application/json" \

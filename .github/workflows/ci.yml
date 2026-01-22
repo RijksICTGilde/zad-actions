@@ -60,9 +60,9 @@ jobs:
         run: |
           bash <(curl -s https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash)
 
-      - name: Lint action.yml files
+      - name: Lint workflow files
         run: |
-          ./actionlint deploy/action.yml cleanup/action.yml
+          ./actionlint .github/workflows/*.yml
 
   yaml-lint:
     name: YAML Lint

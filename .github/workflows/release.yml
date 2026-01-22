@@ -20,8 +20,8 @@ jobs:
         run: |
           TAG=${GITHUB_REF#refs/tags/}
           MAJOR=$(echo "$TAG" | cut -d. -f1)
-          echo "tag=$TAG" >> $GITHUB_OUTPUT
-          echo "major=$MAJOR" >> $GITHUB_OUTPUT
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "major=$MAJOR" >> "$GITHUB_OUTPUT"
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2

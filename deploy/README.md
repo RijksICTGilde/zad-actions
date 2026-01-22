@@ -9,9 +9,10 @@ Deploys a container image to ZAD Operations Manager.
 | `api-key` | Yes | - | ZAD API key (`ZAD_API_KEY` secret) |
 | `project-id` | Yes | - | ZAD project identifier (e.g., `regel-k4c`) |
 | `deployment-name` | Yes | - | Name of the deployment (e.g., `pr-73`, `production`) |
-| `component` | Yes | - | Component reference (e.g., `editor`, `api`) |
+| `component` | Yes | - | Component reference (e.g., `editor`, `api`, `my.service`) |
 | `image` | Yes | - | Full container image URI (e.g., `ghcr.io/org/app:tag`) |
 | `clone-from` | No | `''` | Clone configuration from existing deployment |
+| `force-clone` | No | `false` | Force clone even if deployment already exists |
 | `api-base-url` | No | `https://operations-manager.rig.prd1.gn2.quattro.rijksapps.nl/api` | ZAD Operations Manager API base URL |
 
 ## Outputs
@@ -95,4 +96,4 @@ For example:
 2. Calls the ZAD Operations Manager upsert-deployment API
 3. Returns the constructed URL as an output
 
-If `clone-from` is specified, the new deployment will inherit configuration from the specified existing deployment.
+If `clone-from` is specified, the new deployment will inherit configuration from the specified existing deployment. Use `force-clone: true` to re-clone configuration even if the deployment already exists.

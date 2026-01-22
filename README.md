@@ -184,4 +184,4 @@ Contributions are welcome! Please open an issue or pull request.
 
 ## License
 
-MIT License - see [LICENSE](./LICENSE) for details.
+EUPL-1.2 - see [LICENSE](./LICENSE) for details.

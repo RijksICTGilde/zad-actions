@@ -1,0 +1,81 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  shellcheck:
+    name: ShellCheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install ShellCheck
+        run: sudo apt-get update && sudo apt-get install -y shellcheck
+
+      - name: Extract and lint bash scripts from action.yml files
+        run: |
+          set -e
+          EXIT_CODE=0
+
+          for action_file in deploy/action.yml cleanup/action.yml; do
+            echo "Checking $action_file..."
+
+            # Extract all bash run blocks from the action file
+            # Using yq to parse YAML and extract run scripts
+            SCRIPTS=$(yq eval '.runs.steps[].run // empty' "$action_file" 2>/dev/null || echo "")
+
+            if [ -n "$SCRIPTS" ]; then
+              # Create temp file for each script block
+              STEP_NUM=0
+              echo "$SCRIPTS" | while IFS= read -r script; do
+                if [ -n "$script" ]; then
+                  STEP_NUM=$((STEP_NUM + 1))
+                  TEMP_FILE=$(mktemp)
+                  echo "#!/bin/bash" > "$TEMP_FILE"
+                  echo "$script" >> "$TEMP_FILE"
+
+                  echo "  Checking step $STEP_NUM..."
+                  if ! shellcheck -x -s bash "$TEMP_FILE" 2>&1; then
+                    EXIT_CODE=1
+                  fi
+                  rm -f "$TEMP_FILE"
+                fi
+              done
+            fi
+          done
+
+          exit $EXIT_CODE
+
+  actionlint:
+    name: Action Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install actionlint
+        run: |
+          bash <(curl -s https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash)
+
+      - name: Lint action.yml files
+        run: |
+          ./actionlint deploy/action.yml cleanup/action.yml
+
+  yaml-lint:
+    name: YAML Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install yamllint
+        run: pip install yamllint
+
+      - name: Lint YAML files
+        run: |
+          yamllint -d "{extends: relaxed, rules: {line-length: {max: 150}}}" \
+            deploy/action.yml \
+            cleanup/action.yml \
+            .github/workflows/*.yml

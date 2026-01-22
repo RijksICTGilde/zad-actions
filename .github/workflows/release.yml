@@ -1,0 +1,49 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Create Release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Extract version info
+        id: version
+        run: |
+          TAG=${GITHUB_REF#refs/tags/}
+          MAJOR=$(echo "$TAG" | cut -d. -f1)
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+          echo "major=$MAJOR" >> $GITHUB_OUTPUT
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: ${{ steps.version.outputs.tag }}
+          generate_release_notes: true
+          draft: false
+          prerelease: false
+
+      - name: Update major version tag
+        run: |
+          MAJOR=${{ steps.version.outputs.major }}
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          # Delete the major tag if it exists (both local and remote)
+          git tag -d "$MAJOR" 2>/dev/null || true
+          git push origin ":refs/tags/$MAJOR" 2>/dev/null || true
+
+          # Create and push the new major tag pointing to this commit
+          git tag "$MAJOR"
+          git push origin "$MAJOR"
+
+          echo "Updated $MAJOR tag to point to ${{ steps.version.outputs.tag }}"

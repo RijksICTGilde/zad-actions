@@ -8,6 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **deploy** action: PR commenting feature
+  - Automatically post/update a comment on PRs with the deployment URL
+  - New inputs: `comment-on-pr`, `github-token`, `comment-header`
+  - Upsert behavior: updates existing comment instead of creating duplicates
 - CI/CD pipeline with ShellCheck, actionlint, and yamllint
 - Branch protection and governance files (CODEOWNERS, issue templates, PR template)
 - CONTRIBUTING.md with development guidelines

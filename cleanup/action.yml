@@ -53,6 +53,14 @@ inputs:
     description: 'ZAD Operations Manager API base URL'
     required: false
     default: 'https://operations-manager.rig.prd1.gn2.quattro.rijksapps.nl/api'
+  update-pr-comment:
+    description: 'Update the deploy PR comment to show cleanup status (requires github-token with pull-requests:write)'
+    required: false
+    default: 'false'
+  comment-header:
+    description: 'Header of the deploy comment to find and update (default: "## 🚀 Preview Deployment")'
+    required: false
+    default: '## 🚀 Preview Deployment'
 
 outputs:
   zad-deleted:
@@ -67,6 +75,9 @@ outputs:
   container-deleted:
     description: 'Whether the container image was deleted'
     value: ${{ steps.delete-container.outputs.deleted }}
+  pr-comment-updated:
+    description: 'Whether the PR comment was updated'
+    value: ${{ steps.update-pr-comment.outputs.updated }}
 
 runs:
   using: 'composite'
@@ -261,3 +272,48 @@ runs:
         done
 
         echo "deleted=$DELETED" >> "$GITHUB_OUTPUT"
+
+    - name: Update PR Comment
+      id: update-pr-comment
+      if: inputs.update-pr-comment == 'true' && inputs.github-token != '' && github.event_name == 'pull_request'
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        COMMENT_HEADER: ${{ inputs.comment-header }}
+        PR_NUMBER: ${{ github.event.pull_request.number }}
+        GITHUB_REPOSITORY: ${{ github.repository }}
+        DEPLOYMENT_NAME: ${{ inputs.deployment-name }}
+        PROJECT_ID: ${{ inputs.project-id }}
+      run: |
+        # Build the updated comment body
+        COMMENT_BODY="## 🧹 Preview Deployment (Cleaned Up)
+
+        ~~https://editor-${DEPLOYMENT_NAME}-${PROJECT_ID}.rig.prd1.gn2.quattro.rijksapps.nl~~
+
+        This deployment was automatically cleaned up when the PR was closed."
+
+        # Find existing comment by header
+        EXISTING_COMMENT=$(gh api "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" \
+          --jq ".[] | select(.body | startswith(\"${COMMENT_HEADER}\")) | {id: .id, body: .body}" \
+          2>/dev/null | head -n1 || echo "")
+
+        if [ -z "$EXISTING_COMMENT" ]; then
+          echo "No existing deploy comment found with header: ${COMMENT_HEADER}"
+          echo "updated=false" >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+
+        COMMENT_ID=$(echo "$EXISTING_COMMENT" | jq -r '.id')
+
+        if [ -n "$COMMENT_ID" ] && [ "$COMMENT_ID" != "null" ]; then
+          echo "Updating PR comment (ID: $COMMENT_ID)"
+          gh api "repos/${GITHUB_REPOSITORY}/issues/comments/${COMMENT_ID}" \
+            -X PATCH \
+            -f body="$COMMENT_BODY" \
+            --silent
+          echo "PR comment updated to show cleanup status"
+          echo "updated=true" >> "$GITHUB_OUTPUT"
+        else
+          echo "Could not find comment ID"
+          echo "updated=false" >> "$GITHUB_OUTPUT"
+        fi

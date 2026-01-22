@@ -12,6 +12,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Automatically post/update a comment on PRs with the deployment URL
   - New inputs: `comment-on-pr`, `github-token`, `comment-header`
   - Upsert behavior: updates existing comment instead of creating duplicates
+- **cleanup** action: PR comment update feature
+  - Update the deploy PR comment to show cleanup status when PR is closed
+  - New inputs: `update-pr-comment`, `comment-header`
+  - New output: `pr-comment-updated`
+  - Changes comment header from "🚀 Preview Deployment" to "🧹 Preview Deployment (Cleaned Up)"
 - CI/CD pipeline with ShellCheck, actionlint, and yamllint
 - Branch protection and governance files (CODEOWNERS, issue templates, PR template)
 - CONTRIBUTING.md with development guidelines

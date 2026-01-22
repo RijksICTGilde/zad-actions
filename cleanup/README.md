@@ -18,6 +18,8 @@ Removes a ZAD deployment and optionally cleans up associated GitHub resources (e
 | `github-token` | No | `''` | GitHub token for deployment and container deletion (`deployments: write`, `packages: delete`) |
 | `github-admin-token` | No | `''` | GitHub token for environment deletion (needs repo admin permission) |
 | `api-base-url` | No | `https://operations-manager.rig.prd1.gn2.quattro.rijksapps.nl/api` | ZAD Operations Manager API base URL |
+| `update-pr-comment` | No | `false` | Update the deploy PR comment to show cleanup status |
+| `comment-header` | No | `## 🚀 Preview Deployment` | Header of the deploy comment to find and update |
 
 ## Outputs
 
@@ -27,6 +29,7 @@ Removes a ZAD deployment and optionally cleans up associated GitHub resources (e
 | `github-env-deleted` | Whether the GitHub environment was deleted (`true`/`false`) |
 | `github-deployments-deleted` | Whether GitHub deployments were deleted (`true`/`false`) |
 | `container-deleted` | Whether the container image was deleted (`true`/`false`) |
+| `pr-comment-updated` | Whether the PR comment was updated (`true`/`false`) |
 
 ## Example Usage
 
@@ -69,6 +72,7 @@ cleanup-preview:
   permissions:
     deployments: write
     packages: write
+    pull-requests: write  # For update-pr-comment
   steps:
     - name: Cleanup PR preview
       uses: RijksICTGilde/zad-actions/cleanup@v1
@@ -84,7 +88,30 @@ cleanup-preview:
         container-tag: pr-${{ github.event.number }}
         github-token: ${{ secrets.GITHUB_TOKEN }}
         github-admin-token: ${{ secrets.GITHUB_ADMIN_TOKEN }}
+        update-pr-comment: true
 ```
+
+### PR Comment Update
+
+When used with the deploy action's `comment-on-pr` feature, the cleanup action can update the PR comment to show that the deployment was cleaned up:
+
+**Before cleanup:**
+> ## 🚀 Preview Deployment
+>
+> Your changes have been deployed to a preview environment:
+>
+> **URL:** https://web-pr123-my-project.rig...
+>
+> This deployment will be automatically cleaned up when the PR is closed.
+
+**After cleanup:**
+> ## 🧹 Preview Deployment (Cleaned Up)
+>
+> ~~https://editor-pr123-my-project.rig...~~
+>
+> This deployment was automatically cleaned up when the PR was closed.
+
+To enable this, add `update-pr-comment: true` to your cleanup step. The action will find the existing deploy comment by its header and update it.
 
 ## Permissions
 
@@ -92,8 +119,9 @@ cleanup-preview:
 
 ```yaml
 permissions:
-  deployments: write  # For delete-github-deployments
-  packages: write     # For delete-container
+  deployments: write   # For delete-github-deployments
+  packages: write      # For delete-container
+  pull-requests: write # For update-pr-comment
 ```
 
 ### Token Requirements
@@ -104,6 +132,7 @@ permissions:
 | Delete GitHub deployments | `github-token` | `deployments: write` |
 | Delete GitHub environment | `github-admin-token` | Repository admin access |
 | Delete container image | `github-token` | `packages: delete` |
+| Update PR comment | `github-token` | `pull-requests: write` |
 
 **Note:** The default `GITHUB_TOKEN` cannot delete GitHub environments. You need a Personal Access Token (PAT) or GitHub App token with admin permissions for the repository.
 
@@ -186,6 +215,7 @@ Check cleanup results and take action:
 2. **Delete GitHub Deployments** (optional): Marks all deployments for the environment as inactive, then deletes them
 3. **Delete GitHub Environment** (optional): Deletes the GitHub environment
 4. **Delete Container Image** (optional): Finds and deletes the container version with the specified tag
+5. **Update PR Comment** (optional): Updates the deploy comment to show cleanup status
 
 Each step runs independently and won't fail the action if it fails (cleanup is best-effort). Check the outputs to see what was actually deleted.
 

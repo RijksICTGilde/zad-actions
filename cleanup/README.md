@@ -107,6 +107,79 @@ permissions:
 
 **Note:** The default `GITHUB_TOKEN` cannot delete GitHub environments. You need a Personal Access Token (PAT) or GitHub App token with admin permissions for the repository.
 
+### Scheduled Stale Environment Cleanup
+
+Automatically clean up old PR preview environments:
+
+```yaml
+name: Cleanup Stale Environments
+
+on:
+  schedule:
+    - cron: '0 2 * * *'  # Daily at 2 AM
+  workflow_dispatch:
+
+jobs:
+  cleanup-stale:
+    runs-on: ubuntu-latest
+    permissions:
+      deployments: write
+      packages: write
+    steps:
+      - name: Get stale PR environments
+        id: stale
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Find PR environments older than 7 days
+          gh api repos/${{ github.repository }}/environments \
+            --jq '.environments[] | select(.name | startswith("pr")) | .name' > envs.txt
+          echo "Found environments:"
+          cat envs.txt
+
+      - name: Cleanup each stale environment
+        env:
+          ZAD_API_KEY: ${{ secrets.ZAD_API_KEY }}
+        run: |
+          while read -r env; do
+            echo "Cleaning up: $env"
+            # Extract PR number from environment name (e.g., pr123 -> 123)
+            pr_num="${env#pr}"
+            # Add your cleanup logic here
+          done < envs.txt
+```
+
+### Conditional Cleanup Based on Outputs
+
+Check cleanup results and take action:
+
+```yaml
+- name: Cleanup deployment
+  id: cleanup
+  uses: RijksICTGilde/zad-actions/cleanup@v1
+  with:
+    api-key: ${{ secrets.ZAD_API_KEY }}
+    project-id: my-project
+    deployment-name: pr${{ github.event.pull_request.number }}
+    delete-github-env: true
+    delete-container: true
+    container-org: ${{ github.repository_owner }}
+    container-name: my-app
+    container-tag: pr-${{ github.event.number }}
+    github-token: ${{ secrets.GITHUB_TOKEN }}
+    github-admin-token: ${{ secrets.GITHUB_ADMIN_TOKEN }}
+
+- name: Report cleanup results
+  run: |
+    echo "ZAD deleted: ${{ steps.cleanup.outputs.zad-deleted }}"
+    echo "Environment deleted: ${{ steps.cleanup.outputs.github-env-deleted }}"
+    echo "Container deleted: ${{ steps.cleanup.outputs.container-deleted }}"
+
+- name: Notify on incomplete cleanup
+  if: steps.cleanup.outputs.zad-deleted != 'true'
+  run: echo "::warning::ZAD deployment was not deleted - may need manual cleanup"
+```
+
 ## How It Works
 
 1. **Delete ZAD Deployment**: Calls the ZAD Operations Manager DELETE API

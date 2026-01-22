@@ -90,6 +90,86 @@ For example:
 - `component: editor`, `deployment: pr73`, `project: regel-k4c`
 - URL: `https://editor-pr73-regel-k4c.rig.prd1.gn2.quattro.rijksapps.nl`
 
+### Multi-Component Deployment
+
+Deploy multiple components in the same workflow:
+
+```yaml
+deploy:
+  runs-on: ubuntu-latest
+  strategy:
+    matrix:
+      component: [frontend, api, worker]
+  steps:
+    - name: Deploy ${{ matrix.component }}
+      uses: RijksICTGilde/zad-actions/deploy@v1
+      with:
+        api-key: ${{ secrets.ZAD_API_KEY }}
+        project-id: my-project
+        deployment-name: production
+        component: ${{ matrix.component }}
+        image: ghcr.io/org/app-${{ matrix.component }}:${{ github.sha }}
+```
+
+### Conditional Deployment (Branch-Based)
+
+Deploy to different environments based on branch:
+
+```yaml
+deploy:
+  runs-on: ubuntu-latest
+  steps:
+    - name: Deploy to staging
+      if: github.ref == 'refs/heads/develop'
+      uses: RijksICTGilde/zad-actions/deploy@v1
+      with:
+        api-key: ${{ secrets.ZAD_API_KEY }}
+        project-id: my-project
+        deployment-name: staging
+        component: web
+        image: ghcr.io/org/app:${{ github.sha }}
+
+    - name: Deploy to production
+      if: github.ref == 'refs/heads/main'
+      uses: RijksICTGilde/zad-actions/deploy@v1
+      with:
+        api-key: ${{ secrets.ZAD_API_KEY }}
+        project-id: my-project
+        deployment-name: production
+        component: web
+        image: ghcr.io/org/app:${{ github.sha }}
+        clone-from: staging
+```
+
+### Deploy with Deployment Status Check
+
+Wait for deployment to be healthy:
+
+```yaml
+- name: Deploy to ZAD
+  id: deploy
+  uses: RijksICTGilde/zad-actions/deploy@v1
+  with:
+    api-key: ${{ secrets.ZAD_API_KEY }}
+    project-id: my-project
+    deployment-name: production
+    component: web
+    image: ghcr.io/org/app:latest
+
+- name: Wait for deployment to be ready
+  run: |
+    for i in {1..30}; do
+      if curl -s -o /dev/null -w "%{http_code}" "${{ steps.deploy.outputs.url }}/health" | grep -q "200"; then
+        echo "Deployment is healthy!"
+        exit 0
+      fi
+      echo "Waiting for deployment... (attempt $i/30)"
+      sleep 10
+    done
+    echo "Deployment health check timed out"
+    exit 1
+```
+
 ## How It Works
 
 1. Constructs a JSON payload with deployment configuration

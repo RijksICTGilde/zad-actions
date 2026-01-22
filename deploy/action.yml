@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: EUPL-1.2
 name: 'Deploy to ZAD'
 description: 'Deploy a container image to ZAD Operations Manager'
 author: 'RijksICTGilde'
@@ -138,10 +139,32 @@ runs:
 
           # Construct the URL (standard ZAD URL pattern)
           URL="https://${COMPONENT}-${DEPLOYMENT_NAME}-${PROJECT_ID}.rig.prd1.gn2.quattro.rijksapps.nl"
-          echo "url=$URL" >> $GITHUB_OUTPUT
+          echo "url=$URL" >> "$GITHUB_OUTPUT"
           echo "Deployed to: $URL"
+        elif [ "$HTTP_CODE" -eq 000 ]; then
+          echo "::error::Deployment failed: Unable to connect to ZAD API"
+          echo "::error::This could be a network issue or the API may be unavailable"
+          echo "::error::Please verify the API URL: $API_BASE_URL"
+          exit 1
+        elif [ "$HTTP_CODE" -eq 401 ]; then
+          echo "::error::Deployment failed: Authentication failed (HTTP 401)"
+          echo "::error::Please verify your ZAD_API_KEY secret is correct and not expired"
+          exit 1
+        elif [ "$HTTP_CODE" -eq 403 ]; then
+          echo "::error::Deployment failed: Access denied (HTTP 403)"
+          echo "::error::Your API key may not have permission for project '$PROJECT_ID'"
+          exit 1
+        elif [ "$HTTP_CODE" -eq 404 ]; then
+          echo "::error::Deployment failed: Project not found (HTTP 404)"
+          echo "::error::Please verify project-id '$PROJECT_ID' exists in ZAD"
+          exit 1
+        elif [ "$HTTP_CODE" -ge 500 ]; then
+          echo "::error::Deployment failed: ZAD API server error (HTTP $HTTP_CODE)"
+          echo "::error::This is likely a temporary issue. Please try again later"
+          echo "$BODY"
+          exit 1
         else
-          echo "Deployment failed (HTTP $HTTP_CODE)"
+          echo "::error::Deployment failed (HTTP $HTTP_CODE)"
           echo "$BODY"
           exit 1
         fi

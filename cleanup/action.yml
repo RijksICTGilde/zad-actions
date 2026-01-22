@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: EUPL-1.2
 name: 'Cleanup ZAD Deployment'
 description: 'Remove a ZAD deployment and optionally clean up GitHub resources (environments, deployments, container images)'
 author: 'RijksICTGilde'
@@ -104,14 +105,23 @@ runs:
 
         if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 300 ]; then
           echo "ZAD deployment deleted successfully (HTTP $HTTP_CODE)"
-          echo "deleted=true" >> $GITHUB_OUTPUT
+          echo "deleted=true" >> "$GITHUB_OUTPUT"
         elif [ "$HTTP_CODE" -eq 404 ]; then
           echo "ZAD deployment not found (already deleted?)"
-          echo "deleted=false" >> $GITHUB_OUTPUT
+          echo "deleted=false" >> "$GITHUB_OUTPUT"
+        elif [ "$HTTP_CODE" -eq 000 ]; then
+          echo "::warning::Unable to connect to ZAD API - network issue or API unavailable"
+          echo "deleted=false" >> "$GITHUB_OUTPUT"
+        elif [ "$HTTP_CODE" -eq 401 ]; then
+          echo "::warning::Authentication failed (HTTP 401) - verify ZAD_API_KEY is correct"
+          echo "deleted=false" >> "$GITHUB_OUTPUT"
+        elif [ "$HTTP_CODE" -eq 403 ]; then
+          echo "::warning::Access denied (HTTP 403) - API key may lack permission for project '$PROJECT_ID'"
+          echo "deleted=false" >> "$GITHUB_OUTPUT"
         else
-          echo "Failed to delete ZAD deployment (HTTP $HTTP_CODE)"
+          echo "::warning::Failed to delete ZAD deployment (HTTP $HTTP_CODE)"
           echo "$BODY"
-          echo "deleted=false" >> $GITHUB_OUTPUT
+          echo "deleted=false" >> "$GITHUB_OUTPUT"
           # Don't fail - continue with other cleanup tasks
         fi
 
@@ -131,7 +141,7 @@ runs:
 
         if [ -z "$DEPLOYMENTS" ]; then
           echo "No GitHub deployments found for environment: $DEPLOYMENT_NAME"
-          echo "deleted=false" >> $GITHUB_OUTPUT
+          echo "deleted=false" >> "$GITHUB_OUTPUT"
           exit 0
         fi
 
@@ -156,9 +166,9 @@ runs:
 
         echo "Deleted $DELETED_COUNT GitHub deployment(s)"
         if [ "$DELETED_COUNT" -gt 0 ]; then
-          echo "deleted=true" >> $GITHUB_OUTPUT
+          echo "deleted=true" >> "$GITHUB_OUTPUT"
         else
-          echo "deleted=false" >> $GITHUB_OUTPUT
+          echo "deleted=false" >> "$GITHUB_OUTPUT"
         fi
 
     - name: Delete GitHub Environment
@@ -184,21 +194,21 @@ runs:
         # Check if it was successful (204 No Content) or environment didn't exist (404)
         if echo "$HTTP_RESPONSE" | grep -q "HTTP/2 204\|HTTP/1.1 204"; then
           echo "GitHub environment '$DEPLOYMENT_NAME' deleted successfully"
-          echo "deleted=true" >> $GITHUB_OUTPUT
+          echo "deleted=true" >> "$GITHUB_OUTPUT"
         elif echo "$HTTP_RESPONSE" | grep -q "HTTP/2 404\|HTTP/1.1 404"; then
           echo "GitHub environment '$DEPLOYMENT_NAME' does not exist (already deleted?)"
-          echo "deleted=false" >> $GITHUB_OUTPUT
-          echo "reason=not_found" >> $GITHUB_OUTPUT
+          echo "deleted=false" >> "$GITHUB_OUTPUT"
+          echo "reason=not_found" >> "$GITHUB_OUTPUT"
         elif echo "$HTTP_RESPONSE" | grep -q "HTTP/2 403\|HTTP/1.1 403"; then
           echo "::error::Permission denied: github-admin-token lacks permission to delete environments"
           echo "::error::Ensure the token has 'repo' scope or is a GitHub App with 'administration:write' permission"
-          echo "deleted=false" >> $GITHUB_OUTPUT
-          echo "reason=permission_denied" >> $GITHUB_OUTPUT
+          echo "deleted=false" >> "$GITHUB_OUTPUT"
+          echo "reason=permission_denied" >> "$GITHUB_OUTPUT"
         else
           echo "::warning::Failed to delete GitHub environment '$DEPLOYMENT_NAME'"
           echo "Response: $HTTP_RESPONSE"
-          echo "deleted=false" >> $GITHUB_OUTPUT
-          echo "reason=unknown" >> $GITHUB_OUTPUT
+          echo "deleted=false" >> "$GITHUB_OUTPUT"
+          echo "reason=unknown" >> "$GITHUB_OUTPUT"
         fi
 
     - name: Delete Container Image
@@ -235,7 +245,7 @@ runs:
 
         if [ -z "$VERSIONS" ]; then
           echo "Container image not found or no matching tag"
-          echo "deleted=false" >> $GITHUB_OUTPUT
+          echo "deleted=false" >> "$GITHUB_OUTPUT"
           exit 0
         fi
 
@@ -250,4 +260,4 @@ runs:
           fi
         done
 
-        echo "deleted=$DELETED" >> $GITHUB_OUTPUT
+        echo "deleted=$DELETED" >> "$GITHUB_OUTPUT"

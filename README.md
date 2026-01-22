@@ -1,5 +1,9 @@
 # ZAD Actions
 
+[![CI](https://github.com/RijksICTGilde/zad-actions/actions/workflows/ci.yml/badge.svg)](https://github.com/RijksICTGilde/zad-actions/actions/workflows/ci.yml)
+[![License: EUPL-1.2](https://img.shields.io/badge/License-EUPL--1.2-blue.svg)](https://opensource.org/licenses/EUPL-1.2)
+[![GitHub release](https://img.shields.io/github/v/release/RijksICTGilde/zad-actions)](https://github.com/RijksICTGilde/zad-actions/releases)
+
 Reusable GitHub Actions for deploying to [ZAD](https://github.com/RijksICTGilde/RIG-Cluster) (Zelfservice voor Applicatie Deployment).
 
 ## Available Actions

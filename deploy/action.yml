@@ -17,7 +17,7 @@ inputs:
     description: 'Name of the deployment (e.g., pr-73, production)'
     required: true
   component:
-    description: 'Component reference (e.g., editor, api)'
+    description: 'Component reference (e.g., editor, api, my.service)'
     required: true
   image:
     description: 'Full container image URI (e.g., ghcr.io/org/app:tag)'
@@ -26,6 +26,10 @@ inputs:
     description: 'Clone configuration from existing deployment (optional)'
     required: false
     default: ''
+  force-clone:
+    description: 'Force clone even if deployment exists (optional, default: false)'
+    required: false
+    default: 'false'
   api-base-url:
     description: 'ZAD Operations Manager API base URL'
     required: false
@@ -49,18 +53,54 @@ runs:
         COMPONENT: ${{ inputs.component }}
         IMAGE: ${{ inputs.image }}
         CLONE_FROM: ${{ inputs.clone-from }}
+        FORCE_CLONE: ${{ inputs.force-clone }}
         API_BASE_URL: ${{ inputs.api-base-url }}
       run: |
+        # Validate inputs FIRST (before logging)
+        # Allow alphanumeric, hyphens, underscores, and dots
+        if ! echo "$PROJECT_ID" | grep -qE '^[a-zA-Z0-9._-]+$'; then
+          echo "Error: project-id contains invalid characters (allowed: a-z, A-Z, 0-9, ., _, -)"
+          exit 1
+        fi
+        if ! echo "$DEPLOYMENT_NAME" | grep -qE '^[a-zA-Z0-9._-]+$'; then
+          echo "Error: deployment-name contains invalid characters (allowed: a-z, A-Z, 0-9, ., _, -)"
+          exit 1
+        fi
+        if ! echo "$COMPONENT" | grep -qE '^[a-zA-Z0-9._-]+$'; then
+          echo "Error: component contains invalid characters (allowed: a-z, A-Z, 0-9, ., _, -)"
+          exit 1
+        fi
+        if [ -n "$CLONE_FROM" ] && ! echo "$CLONE_FROM" | grep -qE '^[a-zA-Z0-9._-]+$'; then
+          echo "Error: clone-from contains invalid characters (allowed: a-z, A-Z, 0-9, ., _, -)"
+          exit 1
+        fi
+
+        # Now safe to log validated inputs
+        echo "Deploying to ZAD..."
+        echo "Project: $PROJECT_ID"
+        echo "Deployment: $DEPLOYMENT_NAME"
+        echo "Component: $COMPONENT"
+        echo "Image: $IMAGE"
+        if [ -n "$CLONE_FROM" ]; then
+          echo "Cloning config from: $CLONE_FROM (force: $FORCE_CLONE)"
+        fi
+
         # Build the request payload
         if [ -n "$CLONE_FROM" ]; then
+          FORCE_CLONE_BOOL="false"
+          if [ "$FORCE_CLONE" = "true" ]; then
+            FORCE_CLONE_BOOL="true"
+          fi
           PAYLOAD=$(jq -n \
             --arg name "$DEPLOYMENT_NAME" \
             --arg ref "$COMPONENT" \
             --arg image "$IMAGE" \
             --arg clone "$CLONE_FROM" \
+            --argjson force "$FORCE_CLONE_BOOL" \
             '{
               deploymentName: $name,
               cloneFrom: $clone,
+              forceClone: $force,
               components: [{
                 reference: $ref,
                 image: $image
@@ -78,29 +118,6 @@ runs:
                 image: $image
               }]
             }')
-        fi
-
-        echo "Deploying to ZAD..."
-        echo "Project: $PROJECT_ID"
-        echo "Deployment: $DEPLOYMENT_NAME"
-        echo "Component: $COMPONENT"
-        echo "Image: $IMAGE"
-        if [ -n "$CLONE_FROM" ]; then
-          echo "Cloning config from: $CLONE_FROM"
-        fi
-
-        # Validate inputs (alphanumeric, hyphens, underscores only)
-        if ! echo "$PROJECT_ID" | grep -qE '^[a-zA-Z0-9_-]+$'; then
-          echo "Error: project-id contains invalid characters"
-          exit 1
-        fi
-        if ! echo "$DEPLOYMENT_NAME" | grep -qE '^[a-zA-Z0-9_-]+$'; then
-          echo "Error: deployment-name contains invalid characters"
-          exit 1
-        fi
-        if ! echo "$COMPONENT" | grep -qE '^[a-zA-Z0-9_-]+$'; then
-          echo "Error: component contains invalid characters"
-          exit 1
         fi
 
         # Make the API call (60s timeout)

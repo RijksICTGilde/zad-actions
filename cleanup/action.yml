@@ -79,17 +79,19 @@ runs:
         DEPLOYMENT_NAME: ${{ inputs.deployment-name }}
         API_BASE_URL: ${{ inputs.api-base-url }}
       run: |
-        echo "Deleting ZAD deployment: $DEPLOYMENT_NAME from project: $PROJECT_ID"
+        # Validate inputs FIRST (before logging)
+        # Allow alphanumeric, hyphens, underscores, and dots
+        if ! echo "$PROJECT_ID" | grep -qE '^[a-zA-Z0-9._-]+$'; then
+          echo "Error: project-id contains invalid characters (allowed: a-z, A-Z, 0-9, ., _, -)"
+          exit 1
+        fi
+        if ! echo "$DEPLOYMENT_NAME" | grep -qE '^[a-zA-Z0-9._-]+$'; then
+          echo "Error: deployment-name contains invalid characters (allowed: a-z, A-Z, 0-9, ., _, -)"
+          exit 1
+        fi
 
-        # Validate inputs (alphanumeric, hyphens, underscores only)
-        if ! echo "$PROJECT_ID" | grep -qE '^[a-zA-Z0-9_-]+$'; then
-          echo "Error: project-id contains invalid characters"
-          exit 1
-        fi
-        if ! echo "$DEPLOYMENT_NAME" | grep -qE '^[a-zA-Z0-9_-]+$'; then
-          echo "Error: deployment-name contains invalid characters"
-          exit 1
-        fi
+        # Now safe to log
+        echo "Deleting ZAD deployment: $DEPLOYMENT_NAME from project: $PROJECT_ID"
 
         RESPONSE=$(curl -s -w "\n%{http_code}" \
           --max-time 60 \
@@ -173,12 +175,30 @@ runs:
         # URL-encode the environment name
         ENCODED_ENV=$(echo "$DEPLOYMENT_NAME" | jq -sRr @uri)
 
-        if gh api "repos/$GITHUB_REPOSITORY/environments/$ENCODED_ENV" -X DELETE 2>/dev/null; then
-          echo "GitHub environment deleted successfully"
+        # Try to delete and capture the response
+        HTTP_RESPONSE=$(gh api "repos/$GITHUB_REPOSITORY/environments/$ENCODED_ENV" \
+          -X DELETE \
+          --include \
+          2>&1) || true
+
+        # Check if it was successful (204 No Content) or environment didn't exist (404)
+        if echo "$HTTP_RESPONSE" | grep -q "HTTP/2 204\|HTTP/1.1 204"; then
+          echo "GitHub environment '$DEPLOYMENT_NAME' deleted successfully"
           echo "deleted=true" >> $GITHUB_OUTPUT
-        else
-          echo "Failed to delete GitHub environment (may not exist or insufficient permissions)"
+        elif echo "$HTTP_RESPONSE" | grep -q "HTTP/2 404\|HTTP/1.1 404"; then
+          echo "GitHub environment '$DEPLOYMENT_NAME' does not exist (already deleted?)"
           echo "deleted=false" >> $GITHUB_OUTPUT
+          echo "reason=not_found" >> $GITHUB_OUTPUT
+        elif echo "$HTTP_RESPONSE" | grep -q "HTTP/2 403\|HTTP/1.1 403"; then
+          echo "::error::Permission denied: github-admin-token lacks permission to delete environments"
+          echo "::error::Ensure the token has 'repo' scope or is a GitHub App with 'administration:write' permission"
+          echo "deleted=false" >> $GITHUB_OUTPUT
+          echo "reason=permission_denied" >> $GITHUB_OUTPUT
+        else
+          echo "::warning::Failed to delete GitHub environment '$DEPLOYMENT_NAME'"
+          echo "Response: $HTTP_RESPONSE"
+          echo "deleted=false" >> $GITHUB_OUTPUT
+          echo "reason=unknown" >> $GITHUB_OUTPUT
         fi
 
     - name: Delete Container Image
@@ -191,11 +211,27 @@ runs:
         CONTAINER_NAME: ${{ inputs.container-name }}
         CONTAINER_TAG: ${{ inputs.container-tag }}
       run: |
+        # Validate container inputs FIRST (before using in API calls)
+        if ! echo "$CONTAINER_ORG" | grep -qE '^[a-zA-Z0-9._-]+$'; then
+          echo "Error: container-org contains invalid characters (allowed: a-z, A-Z, 0-9, ., _, -)"
+          exit 1
+        fi
+        if ! echo "$CONTAINER_NAME" | grep -qE '^[a-zA-Z0-9._-]+$'; then
+          echo "Error: container-name contains invalid characters (allowed: a-z, A-Z, 0-9, ., _, -)"
+          exit 1
+        fi
+        # Container tags can have more characters but NOT quotes or backticks
+        if echo "$CONTAINER_TAG" | grep -qE '["`'\''\\]'; then
+          echo "Error: container-tag contains dangerous characters (quotes, backticks, backslashes not allowed)"
+          exit 1
+        fi
+
         echo "Deleting container image: ghcr.io/$CONTAINER_ORG/$CONTAINER_NAME:$CONTAINER_TAG"
 
-        # Get all versions of the package
-        VERSIONS=$(gh api "orgs/$CONTAINER_ORG/packages/container/$CONTAINER_NAME/versions" \
-          --jq ".[] | select(.metadata.container.tags | index(\"$CONTAINER_TAG\")) | .id" 2>/dev/null || echo "")
+        # Get all versions of the package and filter by tag using jq safely
+        # Use jq --arg to safely pass the tag value
+        VERSIONS=$(gh api "orgs/$CONTAINER_ORG/packages/container/$CONTAINER_NAME/versions" 2>/dev/null | \
+          jq -r --arg tag "$CONTAINER_TAG" '.[] | select(.metadata.container.tags | index($tag)) | .id' 2>/dev/null || echo "")
 
         if [ -z "$VERSIONS" ]; then
           echo "Container image not found or no matching tag"

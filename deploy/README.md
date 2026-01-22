@@ -14,6 +14,9 @@ Deploys a container image to ZAD Operations Manager.
 | `clone-from` | No | `''` | Clone configuration from existing deployment |
 | `force-clone` | No | `false` | Force clone even if deployment already exists |
 | `api-base-url` | No | `https://operations-manager.rig.prd1.gn2.quattro.rijksapps.nl/api` | ZAD Operations Manager API base URL |
+| `comment-on-pr` | No | `false` | Post/update a comment on the PR with the deployment URL |
+| `github-token` | No | `''` | GitHub token for PR commenting (needs `pull-requests: write`) |
+| `comment-header` | No | `## 🚀 Preview Deployment` | Custom header for the PR comment |
 
 ## Outputs
 
@@ -55,6 +58,42 @@ Deploys a container image to ZAD Operations Manager.
     clone-from: production
 ```
 
+### PR Preview with Automatic Comment
+
+Automatically post a comment on the PR with the deployment URL:
+
+```yaml
+deploy-preview:
+  runs-on: ubuntu-latest
+  if: github.event_name == 'pull_request'
+  permissions:
+    pull-requests: write
+  steps:
+    - name: Deploy PR Preview
+      uses: RijksICTGilde/zad-actions/deploy@v1
+      with:
+        api-key: ${{ secrets.ZAD_API_KEY }}
+        project-id: my-project
+        deployment-name: pr${{ github.event.pull_request.number }}
+        component: web
+        image: ghcr.io/org/app:pr-${{ github.event.number }}
+        clone-from: production
+        comment-on-pr: true
+        github-token: ${{ secrets.GITHUB_TOKEN }}
+```
+
+The action will create a comment like this on the PR:
+
+> ## 🚀 Preview Deployment
+>
+> Your changes have been deployed to a preview environment:
+>
+> **URL:** https://web-pr123-my-project.rig.prd1.gn2.quattro.rijksapps.nl
+>
+> This deployment will be automatically cleaned up when the PR is closed.
+
+On subsequent deployments to the same PR, the existing comment is updated instead of creating a new one.
+
 ### Use with GitHub Environment
 
 ```yaml
@@ -77,7 +116,17 @@ deploy:
 
 ## Permissions
 
-This action requires no special GitHub permissions. Only the ZAD API key is needed.
+| Feature | Required Permission |
+|---------|---------------------|
+| Basic deployment | None (only ZAD API key) |
+| PR commenting | `pull-requests: write` |
+
+For PR commenting, pass `github-token: ${{ secrets.GITHUB_TOKEN }}` and ensure your job has the required permission:
+
+```yaml
+permissions:
+  pull-requests: write
+```
 
 ## URL Pattern
 

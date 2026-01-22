@@ -35,6 +35,18 @@ inputs:
     description: 'ZAD Operations Manager API base URL'
     required: false
     default: 'https://operations-manager.rig.prd1.gn2.quattro.rijksapps.nl/api'
+  comment-on-pr:
+    description: 'Post/update a comment on the PR with the deployment URL (requires github-token)'
+    required: false
+    default: 'false'
+  github-token:
+    description: 'GitHub token for PR commenting (needs pull-requests: write permission)'
+    required: false
+    default: ''
+  comment-header:
+    description: 'Custom header for the PR comment (default: "## 🚀 Preview Deployment")'
+    required: false
+    default: '## 🚀 Preview Deployment'
 
 outputs:
   url:
@@ -167,4 +179,46 @@ runs:
           echo "::error::Deployment failed (HTTP $HTTP_CODE)"
           echo "$BODY"
           exit 1
+        fi
+
+    - name: Comment on PR
+      if: inputs.comment-on-pr == 'true' && inputs.github-token != '' && github.event_name == 'pull_request'
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        DEPLOYMENT_URL: ${{ steps.deploy.outputs.url }}
+        COMMENT_HEADER: ${{ inputs.comment-header }}
+        PR_NUMBER: ${{ github.event.pull_request.number }}
+        GITHUB_REPOSITORY: ${{ github.repository }}
+      run: |
+        # Build the comment body
+        COMMENT_BODY="${COMMENT_HEADER}
+
+        Your changes have been deployed to a preview environment:
+
+        **URL:** ${DEPLOYMENT_URL}
+
+        This deployment will be automatically cleaned up when the PR is closed."
+
+        # Check for existing comment from this action (identified by header)
+        EXISTING_COMMENT_ID=$(gh api "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" \
+          --jq ".[] | select(.body | startswith(\"${COMMENT_HEADER}\")) | .id" \
+          2>/dev/null | head -n1 || echo "")
+
+        if [ -n "$EXISTING_COMMENT_ID" ]; then
+          # Update existing comment
+          echo "Updating existing PR comment (ID: $EXISTING_COMMENT_ID)"
+          gh api "repos/${GITHUB_REPOSITORY}/issues/comments/${EXISTING_COMMENT_ID}" \
+            -X PATCH \
+            -f body="$COMMENT_BODY" \
+            --silent
+          echo "PR comment updated"
+        else
+          # Create new comment
+          echo "Creating new PR comment"
+          gh api "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" \
+            -X POST \
+            -f body="$COMMENT_BODY" \
+            --silent
+          echo "PR comment created"
         fi

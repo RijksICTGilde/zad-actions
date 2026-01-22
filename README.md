@@ -1,6 +1,6 @@
 # ZAD Actions
 
-Reusable GitHub Actions for deploying to [ZAD](https://github.com/RijksICTGilde/RIG-Cluster) (Zero Administation Deployment).
+Reusable GitHub Actions for deploying to [ZAD](https://github.com/RijksICTGilde/RIG-Cluster) (Zelfservice voor Applicatie Deployment).
 
 ## Available Actions
 

@@ -1,0 +1,115 @@
+name: 'Deploy to ZAD'
+description: 'Deploy a container image to ZAD Operations Manager'
+author: 'RijksICTGilde'
+
+branding:
+  icon: 'upload-cloud'
+  color: 'blue'
+
+inputs:
+  api-key:
+    description: 'ZAD API key (ZAD_API_KEY secret)'
+    required: true
+  project-id:
+    description: 'ZAD project identifier (e.g., regel-k4c)'
+    required: true
+  deployment-name:
+    description: 'Name of the deployment (e.g., pr-73, production)'
+    required: true
+  component:
+    description: 'Component reference (e.g., editor, api)'
+    required: true
+  image:
+    description: 'Full container image URI (e.g., ghcr.io/org/app:tag)'
+    required: true
+  clone-from:
+    description: 'Clone configuration from existing deployment (optional)'
+    required: false
+    default: ''
+  api-base-url:
+    description: 'ZAD Operations Manager API base URL'
+    required: false
+    default: 'https://operations-manager.rig.prd1.gn2.quattro.rijksapps.nl/api'
+
+outputs:
+  url:
+    description: 'URL of the deployed application'
+    value: ${{ steps.deploy.outputs.url }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Deploy to ZAD
+      id: deploy
+      shell: bash
+      env:
+        ZAD_API_KEY: ${{ inputs.api-key }}
+        PROJECT_ID: ${{ inputs.project-id }}
+        DEPLOYMENT_NAME: ${{ inputs.deployment-name }}
+        COMPONENT: ${{ inputs.component }}
+        IMAGE: ${{ inputs.image }}
+        CLONE_FROM: ${{ inputs.clone-from }}
+        API_BASE_URL: ${{ inputs.api-base-url }}
+      run: |
+        # Build the request payload
+        if [ -n "$CLONE_FROM" ]; then
+          PAYLOAD=$(jq -n \
+            --arg name "$DEPLOYMENT_NAME" \
+            --arg ref "$COMPONENT" \
+            --arg image "$IMAGE" \
+            --arg clone "$CLONE_FROM" \
+            '{
+              deploymentName: $name,
+              cloneFrom: $clone,
+              components: [{
+                reference: $ref,
+                image: $image
+              }]
+            }')
+        else
+          PAYLOAD=$(jq -n \
+            --arg name "$DEPLOYMENT_NAME" \
+            --arg ref "$COMPONENT" \
+            --arg image "$IMAGE" \
+            '{
+              deploymentName: $name,
+              components: [{
+                reference: $ref,
+                image: $image
+              }]
+            }')
+        fi
+
+        echo "Deploying to ZAD..."
+        echo "Project: $PROJECT_ID"
+        echo "Deployment: $DEPLOYMENT_NAME"
+        echo "Component: $COMPONENT"
+        echo "Image: $IMAGE"
+        if [ -n "$CLONE_FROM" ]; then
+          echo "Cloning config from: $CLONE_FROM"
+        fi
+
+        # Make the API call
+        RESPONSE=$(curl -s -w "\n%{http_code}" \
+          -X POST \
+          -H "X-API-Key: $ZAD_API_KEY" \
+          -H "Content-Type: application/json" \
+          -d "$PAYLOAD" \
+          "$API_BASE_URL/projects/$PROJECT_ID/:upsert-deployment")
+
+        HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
+        BODY=$(echo "$RESPONSE" | sed '$d')
+
+        if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 300 ]; then
+          echo "Deployment successful (HTTP $HTTP_CODE)"
+          echo "$BODY" | jq . 2>/dev/null || echo "$BODY"
+
+          # Construct the URL (standard ZAD URL pattern)
+          URL="https://${COMPONENT}-${DEPLOYMENT_NAME}-${PROJECT_ID}.rig.prd1.gn2.quattro.rijksapps.nl"
+          echo "url=$URL" >> $GITHUB_OUTPUT
+          echo "Deployed to: $URL"
+        else
+          echo "Deployment failed (HTTP $HTTP_CODE)"
+          echo "$BODY"
+          exit 1
+        fi

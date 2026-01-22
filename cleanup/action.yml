@@ -1,0 +1,206 @@
+name: 'Cleanup ZAD Deployment'
+description: 'Remove a ZAD deployment and optionally clean up GitHub resources (environments, deployments, container images)'
+author: 'RijksICTGilde'
+
+branding:
+  icon: 'trash-2'
+  color: 'red'
+
+inputs:
+  api-key:
+    description: 'ZAD API key (ZAD_API_KEY secret)'
+    required: true
+  project-id:
+    description: 'ZAD project identifier (e.g., regel-k4c)'
+    required: true
+  deployment-name:
+    description: 'Name of the deployment to delete'
+    required: true
+  delete-github-env:
+    description: 'Delete the GitHub environment (requires github-admin-token)'
+    required: false
+    default: 'false'
+  delete-github-deployments:
+    description: 'Delete GitHub deployments for this environment (requires github-token with deployments:write)'
+    required: false
+    default: 'false'
+  delete-container:
+    description: 'Delete the container image from GHCR'
+    required: false
+    default: 'false'
+  container-org:
+    description: 'Organization owning the container (for image deletion)'
+    required: false
+    default: ''
+  container-name:
+    description: 'Container package name (for image deletion)'
+    required: false
+    default: ''
+  container-tag:
+    description: 'Container tag to delete (for image deletion)'
+    required: false
+    default: ''
+  github-token:
+    description: 'GitHub token for deployment deletion (needs deployments:write permission)'
+    required: false
+    default: ''
+  github-admin-token:
+    description: 'GitHub token for environment deletion (needs repo admin permission, typically GITHUB_ADMIN_TOKEN secret)'
+    required: false
+    default: ''
+  api-base-url:
+    description: 'ZAD Operations Manager API base URL'
+    required: false
+    default: 'https://operations-manager.rig.prd1.gn2.quattro.rijksapps.nl/api'
+
+outputs:
+  zad-deleted:
+    description: 'Whether the ZAD deployment was deleted'
+    value: ${{ steps.delete-zad.outputs.deleted }}
+  github-env-deleted:
+    description: 'Whether the GitHub environment was deleted'
+    value: ${{ steps.delete-github-env.outputs.deleted }}
+  github-deployments-deleted:
+    description: 'Whether GitHub deployments were deleted'
+    value: ${{ steps.delete-github-deployments.outputs.deleted }}
+  container-deleted:
+    description: 'Whether the container image was deleted'
+    value: ${{ steps.delete-container.outputs.deleted }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Delete ZAD Deployment
+      id: delete-zad
+      shell: bash
+      env:
+        ZAD_API_KEY: ${{ inputs.api-key }}
+        PROJECT_ID: ${{ inputs.project-id }}
+        DEPLOYMENT_NAME: ${{ inputs.deployment-name }}
+        API_BASE_URL: ${{ inputs.api-base-url }}
+      run: |
+        echo "Deleting ZAD deployment: $DEPLOYMENT_NAME from project: $PROJECT_ID"
+
+        RESPONSE=$(curl -s -w "\n%{http_code}" \
+          -X DELETE \
+          -H "X-API-Key: $ZAD_API_KEY" \
+          "$API_BASE_URL/projects/$PROJECT_ID/$DEPLOYMENT_NAME")
+
+        HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
+        BODY=$(echo "$RESPONSE" | sed '$d')
+
+        if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 300 ]; then
+          echo "ZAD deployment deleted successfully (HTTP $HTTP_CODE)"
+          echo "deleted=true" >> $GITHUB_OUTPUT
+        elif [ "$HTTP_CODE" -eq 404 ]; then
+          echo "ZAD deployment not found (already deleted?)"
+          echo "deleted=false" >> $GITHUB_OUTPUT
+        else
+          echo "Failed to delete ZAD deployment (HTTP $HTTP_CODE)"
+          echo "$BODY"
+          echo "deleted=false" >> $GITHUB_OUTPUT
+          # Don't fail - continue with other cleanup tasks
+        fi
+
+    - name: Delete GitHub Deployments
+      id: delete-github-deployments
+      if: inputs.delete-github-deployments == 'true' && inputs.github-token != ''
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        DEPLOYMENT_NAME: ${{ inputs.deployment-name }}
+        GITHUB_REPOSITORY: ${{ github.repository }}
+      run: |
+        echo "Deleting GitHub deployments for environment: $DEPLOYMENT_NAME"
+
+        # Get all deployments for this environment
+        DEPLOYMENTS=$(gh api "repos/$GITHUB_REPOSITORY/deployments?environment=$DEPLOYMENT_NAME" --jq '.[].id' 2>/dev/null || echo "")
+
+        if [ -z "$DEPLOYMENTS" ]; then
+          echo "No GitHub deployments found for environment: $DEPLOYMENT_NAME"
+          echo "deleted=false" >> $GITHUB_OUTPUT
+          exit 0
+        fi
+
+        DELETED_COUNT=0
+        for DEPLOYMENT_ID in $DEPLOYMENTS; do
+          echo "Deleting deployment: $DEPLOYMENT_ID"
+
+          # First, mark deployment as inactive
+          gh api "repos/$GITHUB_REPOSITORY/deployments/$DEPLOYMENT_ID/statuses" \
+            -X POST \
+            -f state=inactive \
+            2>/dev/null || true
+
+          # Then delete the deployment
+          if gh api "repos/$GITHUB_REPOSITORY/deployments/$DEPLOYMENT_ID" -X DELETE 2>/dev/null; then
+            echo "Deleted deployment: $DEPLOYMENT_ID"
+            DELETED_COUNT=$((DELETED_COUNT + 1))
+          else
+            echo "Failed to delete deployment: $DEPLOYMENT_ID (may already be deleted)"
+          fi
+        done
+
+        echo "Deleted $DELETED_COUNT GitHub deployment(s)"
+        if [ "$DELETED_COUNT" -gt 0 ]; then
+          echo "deleted=true" >> $GITHUB_OUTPUT
+        else
+          echo "deleted=false" >> $GITHUB_OUTPUT
+        fi
+
+    - name: Delete GitHub Environment
+      id: delete-github-env
+      if: inputs.delete-github-env == 'true' && inputs.github-admin-token != ''
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-admin-token }}
+        DEPLOYMENT_NAME: ${{ inputs.deployment-name }}
+        GITHUB_REPOSITORY: ${{ github.repository }}
+      run: |
+        echo "Deleting GitHub environment: $DEPLOYMENT_NAME"
+
+        # URL-encode the environment name
+        ENCODED_ENV=$(echo "$DEPLOYMENT_NAME" | jq -sRr @uri)
+
+        if gh api "repos/$GITHUB_REPOSITORY/environments/$ENCODED_ENV" -X DELETE 2>/dev/null; then
+          echo "GitHub environment deleted successfully"
+          echo "deleted=true" >> $GITHUB_OUTPUT
+        else
+          echo "Failed to delete GitHub environment (may not exist or insufficient permissions)"
+          echo "deleted=false" >> $GITHUB_OUTPUT
+        fi
+
+    - name: Delete Container Image
+      id: delete-container
+      if: inputs.delete-container == 'true' && inputs.container-org != '' && inputs.container-name != '' && inputs.container-tag != ''
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        CONTAINER_ORG: ${{ inputs.container-org }}
+        CONTAINER_NAME: ${{ inputs.container-name }}
+        CONTAINER_TAG: ${{ inputs.container-tag }}
+      run: |
+        echo "Deleting container image: ghcr.io/$CONTAINER_ORG/$CONTAINER_NAME:$CONTAINER_TAG"
+
+        # Get all versions of the package
+        VERSIONS=$(gh api "orgs/$CONTAINER_ORG/packages/container/$CONTAINER_NAME/versions" \
+          --jq ".[] | select(.metadata.container.tags | index(\"$CONTAINER_TAG\")) | .id" 2>/dev/null || echo "")
+
+        if [ -z "$VERSIONS" ]; then
+          echo "Container image not found or no matching tag"
+          echo "deleted=false" >> $GITHUB_OUTPUT
+          exit 0
+        fi
+
+        DELETED=false
+        for VERSION_ID in $VERSIONS; do
+          echo "Deleting version: $VERSION_ID"
+          if gh api "orgs/$CONTAINER_ORG/packages/container/$CONTAINER_NAME/versions/$VERSION_ID" -X DELETE 2>/dev/null; then
+            echo "Deleted container version: $VERSION_ID"
+            DELETED=true
+          else
+            echo "Failed to delete version: $VERSION_ID"
+          fi
+        done
+
+        echo "deleted=$DELETED" >> $GITHUB_OUTPUT

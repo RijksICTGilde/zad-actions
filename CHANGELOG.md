@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `.editorconfig` for consistent editor formatting
+- `.github/dependabot.yml` for automated GitHub Actions updates
+- `.gitignore` for local settings and Claude plans
 - **deploy** action: PR commenting feature
   - Automatically post/update a comment on PRs with the deployment URL
   - New inputs: `comment-on-pr`, `github-token`, `comment-header`
@@ -22,6 +25,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - CONTRIBUTING.md with development guidelines
 - SECURITY.md with security policy
 - Pre-commit hooks configuration
+
+### Changed
+- `.pre-commit-config.yaml`: require minimum version 4.5.0
+- `CONTRIBUTING.md`: simplify setup with `uv` instead of `pip`
 
 ### Fixed
 - ShellCheck warnings: properly quoted GITHUB_OUTPUT

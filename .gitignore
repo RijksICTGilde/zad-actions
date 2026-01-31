@@ -1,0 +1,5 @@
+# Claude Code
+.claude/plans/
+
+# Local settings (never commit)
+*.local.*

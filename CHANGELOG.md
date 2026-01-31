@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **deploy** action: Wait for ready feature
+  - Wait for deployment to be reachable before continuing
+  - New inputs: `wait-for-ready`, `health-endpoint`, `wait-timeout`, `wait-interval`
+  - Polls deployment URL until HTTP 2xx/3xx or timeout
+  - PR comment only appears after deployment is healthy (when combined with `comment-on-pr`)
 - **deploy** action: PR commenting feature
   - Automatically post/update a comment on PRs with the deployment URL
   - New inputs: `comment-on-pr`, `github-token`, `comment-header`

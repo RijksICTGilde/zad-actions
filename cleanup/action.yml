@@ -42,9 +42,9 @@ inputs:
     required: false
     default: ''
   github-token:
-    description: 'GitHub token for deployment deletion (needs deployments:write permission)'
+    description: 'GitHub token for deployment/PR operations (defaults to automatic token)'
     required: false
-    default: ''
+    default: ${{ github.token }}
   github-admin-token:
     description: 'GitHub token for environment deletion (needs repo admin permission, typically GITHUB_ADMIN_TOKEN secret)'
     required: false
@@ -138,7 +138,7 @@ runs:
 
     - name: Delete GitHub Deployments
       id: delete-github-deployments
-      if: inputs.delete-github-deployments == 'true' && inputs.github-token != ''
+      if: inputs.delete-github-deployments == 'true'
       shell: bash
       env:
         GH_TOKEN: ${{ inputs.github-token }}
@@ -275,7 +275,7 @@ runs:
 
     - name: Update PR Comment
       id: update-pr-comment
-      if: inputs.update-pr-comment == 'true' && inputs.github-token != '' && github.event_name == 'pull_request'
+      if: inputs.update-pr-comment == 'true' && github.event_name == 'pull_request'
       shell: bash
       env:
         GH_TOKEN: ${{ inputs.github-token }}

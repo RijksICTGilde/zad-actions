@@ -12,30 +12,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `.github/dependabot.yml` for automated GitHub Actions updates
 - `.gitignore` for local settings and Claude plans
 - `.claude/` configuration for AI assistant (coding rules, skills, workflow)
-- **deploy** action: PR commenting feature
-  - Automatically post/update a comment on PRs with the deployment URL
-  - New inputs: `comment-on-pr`, `github-token`, `comment-header`
-  - Upsert behavior: updates existing comment instead of creating duplicates
+
+### Changed
+- `.pre-commit-config.yaml`: require minimum version 4.5.0
+- `CONTRIBUTING.md`: simplify setup with `uv` instead of `pip`
+- `release.yml`: verify CHANGELOG entry exists, rollback tag on failure
+
+## [1.2.0] - 2026-01-22
+
+### Added
 - **cleanup** action: PR comment update feature
   - Update the deploy PR comment to show cleanup status when PR is closed
   - New inputs: `update-pr-comment`, `comment-header`
   - New output: `pr-comment-updated`
-  - Changes comment header from "🚀 Preview Deployment" to "🧹 Preview Deployment (Cleaned Up)"
+
+## [1.1.0] - 2026-01-22
+
+### Added
+- **deploy** action: PR commenting feature
+  - Automatically post/update a comment on PRs with the deployment URL
+  - New inputs: `comment-on-pr`, `github-token`, `comment-header`
+  - Upsert behavior: updates existing comment instead of creating duplicates
 - CI/CD pipeline with ShellCheck, actionlint, and yamllint
 - Branch protection and governance files (CODEOWNERS, issue templates, PR template)
 - CONTRIBUTING.md with development guidelines
 - SECURITY.md with security policy
 - Pre-commit hooks configuration
 
-### Changed
-- `.pre-commit-config.yaml`: require minimum version 4.5.0
-- `CONTRIBUTING.md`: simplify setup with `uv` instead of `pip`
-
 ### Fixed
 - ShellCheck warnings: properly quoted GITHUB_OUTPUT
 - Actionlint configuration to only lint workflow files
 
-## [1.0.0] - 2024-01-01
+## [1.0.0] - 2026-01-22
 
 ### Added
 - Initial release of ZAD Actions
@@ -58,5 +66,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Secure handling of API keys via environment variables
 - Dangerous character detection for container inputs
 
-[Unreleased]: https://github.com/RijksICTGilde/zad-actions/compare/v1.0.0...HEAD
+[1.2.0]: https://github.com/RijksICTGilde/zad-actions/releases/tag/v1.2.0
+[1.1.0]: https://github.com/RijksICTGilde/zad-actions/releases/tag/v1.1.0
 [1.0.0]: https://github.com/RijksICTGilde/zad-actions/releases/tag/v1.0.0

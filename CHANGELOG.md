@@ -12,6 +12,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Automatically post/update a comment on PRs with the deployment URL
   - New inputs: `comment-on-pr`, `github-token`, `comment-header`
   - Upsert behavior: updates existing comment instead of creating duplicates
+- **deploy** action: QR code in PR comment
+  - New input: `qr-code` (default: `true`)
+  - QR code for easy mobile testing of preview deployments
+  - Generated locally using `qrencode` (no external API calls, privacy-friendly)
 - **cleanup** action: PR comment update feature
   - Update the deploy PR comment to show cleanup status when PR is closed
   - New inputs: `update-pr-comment`, `comment-header`
@@ -22,6 +26,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - CONTRIBUTING.md with development guidelines
 - SECURITY.md with security policy
 - Pre-commit hooks configuration
+
+### Internal
+- Added justfile for common development tasks
+- Added pre-commit.ci configuration (weekly autoupdates, skip duplicates with CI)
 
 ### Fixed
 - ShellCheck warnings: properly quoted GITHUB_OUTPUT

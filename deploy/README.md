@@ -17,6 +17,7 @@ Deploys a container image to ZAD Operations Manager.
 | `comment-on-pr` | No | `false` | Post/update a comment on the PR with the deployment URL |
 | `github-token` | No | `''` | GitHub token for PR commenting (needs `pull-requests: write`) |
 | `comment-header` | No | `## 🚀 Preview Deployment` | Custom header for the PR comment |
+| `qr-code` | No | `true` | Include QR code for mobile access (generated locally via qrencode) |
 
 ## Outputs
 
@@ -86,11 +87,15 @@ The action will create a comment like this on the PR:
 
 > ## 🚀 Preview Deployment
 >
+> <img src="data:image/png;base64,..." width="100" height="100" align="right" alt="QR code">
+>
 > Your changes have been deployed to a preview environment:
 >
 > **URL:** https://web-pr123-my-project.rig.prd1.gn2.quattro.rijksapps.nl
 >
 > This deployment will be automatically cleaned up when the PR is closed.
+
+The QR code is generated locally using `qrencode` (no external API calls), making it easy to open the preview on your phone for mobile testing. To disable it, set `qr-code: false`.
 
 On subsequent deployments to the same PR, the existing comment is updated instead of creating a new one.
 

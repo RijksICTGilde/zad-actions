@@ -36,13 +36,13 @@ inputs:
     required: false
     default: 'https://operations-manager.rig.prd1.gn2.quattro.rijksapps.nl/api'
   comment-on-pr:
-    description: 'Post/update a comment on the PR with the deployment URL (requires github-token)'
+    description: 'Post/update a comment on the PR with the deployment URL'
     required: false
     default: 'false'
   github-token:
-    description: 'GitHub token for PR commenting (needs pull-requests: write permission)'
+    description: 'GitHub token for PR commenting (defaults to automatic token)'
     required: false
-    default: ''
+    default: ${{ github.token }}
   comment-header:
     description: 'Custom header for the PR comment (default: "## 🚀 Preview Deployment")'
     required: false
@@ -182,7 +182,7 @@ runs:
         fi
 
     - name: Comment on PR
-      if: inputs.comment-on-pr == 'true' && inputs.github-token != '' && github.event_name == 'pull_request'
+      if: inputs.comment-on-pr == 'true' && github.event_name == 'pull_request'
       shell: bash
       env:
         GH_TOKEN: ${{ inputs.github-token }}

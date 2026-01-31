@@ -15,7 +15,7 @@ Removes a ZAD deployment and optionally cleans up associated GitHub resources (e
 | `container-org` | No | `''` | Organization owning the container (for image deletion) |
 | `container-name` | No | `''` | Container package name (for image deletion) |
 | `container-tag` | No | `''` | Container tag to delete (for image deletion) |
-| `github-token` | No | `''` | GitHub token for deployment and container deletion (`deployments: write`, `packages: delete`) |
+| `github-token` | No | `github.token` | GitHub token for deployments/containers/PR (defaults to automatic token) |
 | `github-admin-token` | No | `''` | GitHub token for environment deletion (needs repo admin permission) |
 | `api-base-url` | No | `https://operations-manager.rig.prd1.gn2.quattro.rijksapps.nl/api` | ZAD Operations Manager API base URL |
 | `update-pr-comment` | No | `false` | Update the deploy PR comment to show cleanup status |
@@ -59,7 +59,6 @@ Removes a ZAD deployment and optionally cleans up associated GitHub resources (e
     container-org: minbzk
     container-name: regelrecht-mvp
     container-tag: pr-${{ github.event.number }}
-    github-token: ${{ secrets.GITHUB_TOKEN }}
     github-admin-token: ${{ secrets.GITHUB_ADMIN_TOKEN }}
 ```
 
@@ -86,7 +85,6 @@ cleanup-preview:
         container-org: ${{ github.repository_owner }}
         container-name: ${{ github.event.repository.name }}
         container-tag: pr-${{ github.event.number }}
-        github-token: ${{ secrets.GITHUB_TOKEN }}
         github-admin-token: ${{ secrets.GITHUB_ADMIN_TOKEN }}
         update-pr-comment: true
 ```
@@ -195,7 +193,6 @@ Check cleanup results and take action:
     container-org: ${{ github.repository_owner }}
     container-name: my-app
     container-tag: pr-${{ github.event.number }}
-    github-token: ${{ secrets.GITHUB_TOKEN }}
     github-admin-token: ${{ secrets.GITHUB_ADMIN_TOKEN }}
 
 - name: Report cleanup results

@@ -19,9 +19,23 @@ jobs:
         id: version
         run: |
           TAG=${GITHUB_REF#refs/tags/}
+          VERSION=${TAG#v}
           MAJOR=$(echo "$TAG" | cut -d. -f1)
-          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
-          echo "major=$MAJOR" >> "$GITHUB_OUTPUT"
+          {
+            echo "tag=$TAG"
+            echo "version=$VERSION"
+            echo "major=$MAJOR"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Verify CHANGELOG entry exists
+        run: |
+          VERSION=${{ steps.version.outputs.version }}
+          if ! grep -q "## \[$VERSION\]" CHANGELOG.md; then
+            echo "::error::No CHANGELOG entry found for version $VERSION"
+            echo "::error::Please add a '## [$VERSION]' section to CHANGELOG.md before releasing"
+            exit 1
+          fi
+          echo "Found CHANGELOG entry for version $VERSION"
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
@@ -47,3 +61,11 @@ jobs:
           git push origin "$MAJOR"
 
           echo "Updated $MAJOR tag to point to ${{ steps.version.outputs.tag }}"
+
+      - name: Rollback tag on failure
+        if: failure()
+        run: |
+          TAG=${{ steps.version.outputs.tag }}
+          echo "::warning::Rolling back tag $TAG due to workflow failure"
+          git push origin ":refs/tags/$TAG" 2>/dev/null || true
+          echo "Tag $TAG has been removed. Fix the issue and push the tag again."

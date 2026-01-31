@@ -7,21 +7,16 @@ Thank you for your interest in contributing to ZAD Actions!
 ### Prerequisites
 
 - Git
-- [pre-commit](https://pre-commit.com/) (for local linting)
-- [ShellCheck](https://www.shellcheck.net/) (for bash script linting)
-- [actionlint](https://github.com/rhysd/actionlint) (for GitHub Actions validation)
+- [uv](https://docs.astral.sh/uv/) (for installing pre-commit)
 
 ### Setting Up Pre-commit Hooks
 
 ```bash
-# Install pre-commit
-pip install pre-commit
+# Install pre-commit as a tool
+uv tool install pre-commit
 
 # Install the git hooks
 pre-commit install
-
-# Run hooks manually on all files
-pre-commit run --all-files
 ```
 
 ## Development Workflow

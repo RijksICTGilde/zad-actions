@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `.editorconfig` for consistent editor formatting
 - `.github/dependabot.yml` for automated GitHub Actions updates
 - `.gitignore` for local settings and Claude plans
+- `.claude/` configuration for AI assistant (coding rules, skills, workflow)
 - **deploy** action: PR commenting feature
   - Automatically post/update a comment on PRs with the deployment URL
   - New inputs: `comment-on-pr`, `github-token`, `comment-header`

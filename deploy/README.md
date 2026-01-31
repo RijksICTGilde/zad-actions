@@ -17,11 +17,15 @@ Deploys a container image to ZAD Operations Manager.
 | `comment-on-pr` | No | `false` | Post/update a comment on the PR with the deployment URL |
 | `github-token` | No | `github.token` | GitHub token for PR commenting (defaults to automatic token) |
 | `comment-header` | No | `## 🚀 Preview Deployment` | Custom header for the PR comment |
+| `wait-for-ready` | No | `false` | Wait for deployment to be reachable |
+| `health-endpoint` | No | `/` | Endpoint to check for readiness |
+| `wait-timeout` | No | `300` | Maximum wait time in seconds |
+| `wait-interval` | No | `10` | Seconds between readiness checks |
 
 ## Outputs
 
-| Name | Description |
-|------|-------------|
+| Name  | Description                     |
+|-------|---------------------------------|
 | `url` | URL of the deployed application |
 
 ## Example Usage
@@ -30,17 +34,13 @@ Deploys a container image to ZAD Operations Manager.
 
 ```yaml
 - name: Deploy to ZAD
-  id: deploy
   uses: RijksICTGilde/zad-actions/deploy@v1
   with:
     api-key: ${{ secrets.ZAD_API_KEY }}
-    project-id: regel-k4c
+    project-id: my-project
     deployment-name: production
-    component: editor
-    image: ghcr.io/minbzk/regelrecht-mvp:latest
-
-- name: Show deployment URL
-  run: echo "Deployed to ${{ steps.deploy.outputs.url }}"
+    component: web
+    image: ghcr.io/org/app:latest
 ```
 
 ### PR Preview with Cloned Config
@@ -51,11 +51,11 @@ Deploys a container image to ZAD Operations Manager.
   uses: RijksICTGilde/zad-actions/deploy@v1
   with:
     api-key: ${{ secrets.ZAD_API_KEY }}
-    project-id: regel-k4c
+    project-id: my-project
     deployment-name: pr${{ github.event.pull_request.number }}
-    component: editor
-    image: ghcr.io/minbzk/regelrecht-mvp:pr-${{ github.event.number }}
-    clone-from: production
+    component: web
+    image: ghcr.io/org/app:${{ github.sha }}
+    clone-from: development
 ```
 
 ### PR Preview with Automatic Comment
@@ -76,8 +76,8 @@ deploy-preview:
         project-id: my-project
         deployment-name: pr${{ github.event.pull_request.number }}
         component: web
-        image: ghcr.io/org/app:pr-${{ github.event.number }}
-        clone-from: production
+        image: ghcr.io/org/app:${{ github.sha }}
+        clone-from: development
         comment-on-pr: true
 ```
 
@@ -87,7 +87,7 @@ The action will create a comment like this on the PR:
 >
 > Your changes have been deployed to a preview environment:
 >
-> **URL:** https://web-pr123-my-project.rig.prd1.gn2.quattro.rijksapps.nl
+> **URL:** https://web-pr85-my-project.your-domain.example.com
 >
 > This deployment will be automatically cleaned up when the PR is closed.
 
@@ -110,15 +110,15 @@ deploy:
         project-id: my-project
         deployment-name: pr${{ github.event.pull_request.number }}
         component: web
-        image: ghcr.io/org/app:pr-${{ github.event.number }}
+        image: ghcr.io/org/app:${{ github.sha }}
 ```
 
 ## Permissions
 
-| Feature | Required Permission |
-|---------|---------------------|
-| Basic deployment | None (only ZAD API key) |
-| PR commenting | `pull-requests: write` |
+| Feature          | Required Permission       |
+|------------------|---------------------------|
+| Basic deployment | None (only ZAD API key)   |
+| PR commenting    | `pull-requests: write`    |
 
 For PR commenting, ensure your job has the required permission (the token defaults to `github.token`):
 
@@ -131,12 +131,12 @@ permissions:
 
 The output URL follows the standard ZAD pattern:
 ```
-https://{component}-{deployment}-{project}.rig.prd1.gn2.quattro.rijksapps.nl
+https://{component}-{deployment}-{project}.your-domain.example.com
 ```
 
 For example:
-- `component: editor`, `deployment: pr73`, `project: regel-k4c`
-- URL: `https://editor-pr73-regel-k4c.rig.prd1.gn2.quattro.rijksapps.nl`
+- `component: web`, `deployment: pr85`, `project: my-project`
+- URL: `https://web-pr85-my-project.your-domain.example.com`
 
 ### Multi-Component Deployment
 
@@ -167,8 +167,8 @@ Deploy to different environments based on branch:
 deploy:
   runs-on: ubuntu-latest
   steps:
-    - name: Deploy to staging
-      if: github.ref == 'refs/heads/develop'
+    - name: Deploy to preview
+      if: github.ref == 'refs/heads/staging'
       uses: RijksICTGilde/zad-actions/deploy@v1
       with:
         api-key: ${{ secrets.ZAD_API_KEY }}
@@ -186,16 +186,14 @@ deploy:
         deployment-name: production
         component: web
         image: ghcr.io/org/app:${{ github.sha }}
-        clone-from: staging
 ```
 
 ### Deploy with Deployment Status Check
 
-Wait for deployment to be healthy:
+Wait for deployment to be healthy using the built-in `wait-for-ready` feature:
 
 ```yaml
 - name: Deploy to ZAD
-  id: deploy
   uses: RijksICTGilde/zad-actions/deploy@v1
   with:
     api-key: ${{ secrets.ZAD_API_KEY }}
@@ -203,19 +201,8 @@ Wait for deployment to be healthy:
     deployment-name: production
     component: web
     image: ghcr.io/org/app:latest
-
-- name: Wait for deployment to be ready
-  run: |
-    for i in {1..30}; do
-      if curl -s -o /dev/null -w "%{http_code}" "${{ steps.deploy.outputs.url }}/health" | grep -q "200"; then
-        echo "Deployment is healthy!"
-        exit 0
-      fi
-      echo "Waiting for deployment... (attempt $i/30)"
-      sleep 10
-    done
-    echo "Deployment health check timed out"
-    exit 1
+    wait-for-ready: true
+    health-endpoint: /health
 ```
 
 ## How It Works

@@ -12,6 +12,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `.github/dependabot.yml` for automated GitHub Actions updates
 - `.gitignore` for local settings and Claude plans
 - `.claude/` configuration for AI assistant (coding rules, skills, workflow)
+- **deploy** action: Wait for ready feature
+  - Wait for deployment to be reachable before continuing
+  - New inputs: `wait-for-ready`, `health-endpoint`, `wait-timeout`, `wait-interval`
+  - Polls deployment URL until HTTP 2xx/3xx or timeout
+  - PR comment only appears after deployment is healthy (when combined with `comment-on-pr`)
 
 ### Changed
 - `.pre-commit-config.yaml`: require minimum version 4.5.0

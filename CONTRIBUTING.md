@@ -7,6 +7,7 @@ Thank you for your interest in contributing to ZAD Actions!
 ### Prerequisites
 
 - Git
+- [just](https://github.com/casey/just) (command runner)
 - [pre-commit](https://pre-commit.com/) (for local linting)
 - [ShellCheck](https://www.shellcheck.net/) (for bash script linting)
 - [actionlint](https://github.com/rhysd/actionlint) (for GitHub Actions validation)
@@ -37,10 +38,14 @@ pre-commit run --all-files
 
 ### Testing Locally
 
-Run the pre-commit hooks to validate your changes:
+Use the justfile for common tasks:
 
 ```bash
-pre-commit run --all-files
+# List available commands
+just
+
+# Run linting
+just lint
 ```
 
 ### Testing in a Workflow

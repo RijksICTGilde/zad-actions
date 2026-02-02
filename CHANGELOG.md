@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.0] - 2026-02-02
+
+### Added
+- **cleanup** action: PR comment delete feature
+  - Delete the deploy PR comment when PR is closed (default: enabled)
+  - New inputs: `delete-pr-comment`, `comment-header`
+  - New output: `pr-comment-deleted`
+
+### Removed
+- **BREAKING** `cleanup` action: `update-pr-comment` input (use `delete-pr-comment` instead)
+- **BREAKING** `cleanup` action: `pr-comment-updated` output (use `pr-comment-deleted` instead)
+
+### Migration from v1
+
+If you use the cleanup action with `update-pr-comment`, update your workflow:
+- Replace `update-pr-comment: true` with `delete-pr-comment: true`
+- The output `pr-comment-updated` is now `pr-comment-deleted`
+- Note: `delete-pr-comment` defaults to `true`, so you can remove it if you want the comment deleted
+
 ## [1.3.0] - 2026-02-02
 
 ### Added
@@ -52,29 +71,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Automatically post/update a comment on PRs with the deployment URL
   - New inputs: `comment-on-pr`, `github-token`, `comment-header`
   - Upsert behavior: updates existing comment instead of creating duplicates
-- **cleanup** action: PR comment delete feature
-  - Delete the deploy PR comment when PR is closed (default: enabled)
-  - New inputs: `delete-pr-comment`, `comment-header`
-  - New output: `pr-comment-deleted`
-
 - CI/CD pipeline with ShellCheck, actionlint, and yamllint
 - Branch protection and governance files (CODEOWNERS, issue templates, PR template)
 - CONTRIBUTING.md with development guidelines
 - SECURITY.md with security policy
 - Pre-commit hooks configuration
-
-### Changed
-- **deploy** and **cleanup** actions: `github-token` now defaults to `github.token`
-  - No longer necessary to explicitly pass `github-token: ${{ secrets.GITHUB_TOKEN }}`
-  - Only needed when using a custom PAT for cross-repository operations
-
-### Removed
-- **BREAKING** `cleanup` action: `update-pr-comment` input (use `delete-pr-comment` instead)
-- **BREAKING** `cleanup` action: `pr-comment-updated` output (use `pr-comment-deleted` instead)
-
-### Internal
-- Added justfile for common development tasks
-- Added pre-commit.ci configuration (weekly autoupdates, skip duplicates with CI)
 
 ### Fixed
 - ShellCheck warnings: properly quoted GITHUB_OUTPUT
@@ -103,6 +104,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Secure handling of API keys via environment variables
 - Dangerous character detection for container inputs
 
+[2.0.0]: https://github.com/RijksICTGilde/zad-actions/releases/tag/v2.0.0
 [1.3.0]: https://github.com/RijksICTGilde/zad-actions/releases/tag/v1.3.0
 [1.2.0]: https://github.com/RijksICTGilde/zad-actions/releases/tag/v1.2.0
 [1.1.0]: https://github.com/RijksICTGilde/zad-actions/releases/tag/v1.1.0

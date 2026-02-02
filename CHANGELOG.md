@@ -7,11 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-02-02
+
 ### Added
-- `.editorconfig` for consistent editor formatting
-- `.github/dependabot.yml` for automated GitHub Actions updates
-- `.gitignore` for local settings and Claude plans
-- `.claude/` configuration for AI assistant (coding rules, skills, workflow)
 - **deploy** action: Wait for ready feature
   - Wait for deployment to be reachable before continuing
   - New inputs: `wait-for-ready`, `health-endpoint`, `wait-timeout`, `wait-interval`
@@ -21,11 +19,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - New input: `qr-code` (default: `false`)
   - QR code for easy mobile testing of preview deployments
   - Generated locally using `qrencode` (no external API calls, privacy-friendly)
+- `.editorconfig` for consistent editor formatting
+- `.github/dependabot.yml` for automated GitHub Actions updates
+- `.gitignore` for local settings and Claude plans
+- `.claude/` configuration for AI assistant (coding rules, skills, workflow)
 
 ### Changed
 - `.pre-commit-config.yaml`: require minimum version 4.5.0
 - `CONTRIBUTING.md`: simplify setup with `uv` instead of `pip`
 - `release.yml`: verify CHANGELOG entry exists, rollback tag on failure
+- **deploy** and **cleanup** actions: `github-token` now defaults to `github.token`
+  - No longer necessary to explicitly pass `github-token: ${{ secrets.GITHUB_TOKEN }}`
+  - Only needed when using a custom PAT for cross-repository operations
+- Bump `actions/checkout` from v4 to v6
+
+### Internal
+- Added justfile for common development tasks
+- Added pre-commit.ci configuration (weekly autoupdates, skip duplicates with CI)
 
 ## [1.2.0] - 2026-01-22
 
@@ -84,6 +94,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Secure handling of API keys via environment variables
 - Dangerous character detection for container inputs
 
+[1.3.0]: https://github.com/RijksICTGilde/zad-actions/releases/tag/v1.3.0
 [1.2.0]: https://github.com/RijksICTGilde/zad-actions/releases/tag/v1.2.0
 [1.1.0]: https://github.com/RijksICTGilde/zad-actions/releases/tag/v1.1.0
 [1.0.0]: https://github.com/RijksICTGilde/zad-actions/releases/tag/v1.0.0

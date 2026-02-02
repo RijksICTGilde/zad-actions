@@ -36,17 +36,37 @@ inputs:
     required: false
     default: 'https://operations-manager.rig.prd1.gn2.quattro.rijksapps.nl/api'
   comment-on-pr:
-    description: 'Post/update a comment on the PR with the deployment URL (requires github-token)'
+    description: 'Post/update a comment on the PR with the deployment URL'
     required: false
     default: 'false'
   github-token:
-    description: 'GitHub token for PR commenting (needs pull-requests: write permission)'
+    description: 'GitHub token for PR commenting (defaults to automatic token)'
     required: false
-    default: ''
+    default: ${{ github.token }}
   comment-header:
     description: 'Custom header for the PR comment (default: "## 🚀 Preview Deployment")'
     required: false
     default: '## 🚀 Preview Deployment'
+  wait-for-ready:
+    description: 'Wait for deployment to be reachable before continuing'
+    required: false
+    default: 'false'
+  health-endpoint:
+    description: 'Endpoint to check for readiness (e.g., /, /health)'
+    required: false
+    default: '/'
+  wait-timeout:
+    description: 'Maximum time to wait for deployment in seconds'
+    required: false
+    default: '300'
+  wait-interval:
+    description: 'Seconds between readiness checks'
+    required: false
+    default: '10'
+  qr-code:
+    description: 'Include QR code in PR comment for mobile access (generated locally via qrencode)'
+    required: false
+    default: 'false'
 
 outputs:
   url:
@@ -181,8 +201,53 @@ runs:
           exit 1
         fi
 
+    - name: Wait for deployment to be ready
+      if: inputs.wait-for-ready == 'true'
+      shell: bash
+      env:
+        DEPLOYMENT_URL: ${{ steps.deploy.outputs.url }}
+        HEALTH_ENDPOINT: ${{ inputs.health-endpoint }}
+        WAIT_TIMEOUT: ${{ inputs.wait-timeout }}
+        WAIT_INTERVAL: ${{ inputs.wait-interval }}
+      run: |
+        URL="${DEPLOYMENT_URL}${HEALTH_ENDPOINT}"
+        echo "Waiting for $URL to be ready..."
+
+        ELAPSED=0
+        while [ "$ELAPSED" -lt "$WAIT_TIMEOUT" ]; do
+          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 "$URL" || echo "000")
+
+          if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 400 ]; then
+            echo "Deployment is ready (HTTP $HTTP_CODE)"
+            exit 0
+          fi
+
+          echo "Waiting... (HTTP $HTTP_CODE, ${ELAPSED}s elapsed)"
+          sleep "$WAIT_INTERVAL"
+          ELAPSED=$((ELAPSED + WAIT_INTERVAL))
+        done
+
+        echo "::error::Deployment did not become ready within ${WAIT_TIMEOUT}s"
+        exit 1
+
+    - name: Generate QR code
+      id: qr
+      if: inputs.qr-code == 'true' && inputs.comment-on-pr == 'true' && github.event_name == 'pull_request'
+      shell: bash
+      env:
+        DEPLOYMENT_URL: ${{ steps.deploy.outputs.url }}
+      run: |
+        sudo apt-get install -y qrencode >/dev/null 2>&1 || true
+        if command -v qrencode &> /dev/null; then
+          QR_BASE64=$(qrencode -o - -t PNG -s 4 -m 1 "$DEPLOYMENT_URL" | base64 -w0)
+          IMG="<img src='data:image/png;base64,${QR_BASE64}' width='100' height='100' align='right' alt='QR code'>"
+          echo "html=${IMG}" >> "$GITHUB_OUTPUT"
+        else
+          echo "Warning: qrencode not available, skipping QR code"
+        fi
+
     - name: Comment on PR
-      if: inputs.comment-on-pr == 'true' && inputs.github-token != '' && github.event_name == 'pull_request'
+      if: inputs.comment-on-pr == 'true' && github.event_name == 'pull_request'
       shell: bash
       env:
         GH_TOKEN: ${{ inputs.github-token }}
@@ -190,15 +255,16 @@ runs:
         COMMENT_HEADER: ${{ inputs.comment-header }}
         PR_NUMBER: ${{ github.event.pull_request.number }}
         GITHUB_REPOSITORY: ${{ github.repository }}
+        QR_HTML: ${{ steps.qr.outputs.html }}
       run: |
         # Build the comment body
-        COMMENT_BODY="${COMMENT_HEADER}
-
-        Your changes have been deployed to a preview environment:
-
-        **URL:** ${DEPLOYMENT_URL}
-
-        This deployment will be automatically cleaned up when the PR is closed."
+        COMMENT_BODY="${COMMENT_HEADER}"$'\n\n'
+        if [ -n "$QR_HTML" ]; then
+          COMMENT_BODY+="${QR_HTML}"$'\n\n'
+        fi
+        COMMENT_BODY+="Your changes have been deployed to a preview environment:"$'\n\n'
+        COMMENT_BODY+="**URL:** ${DEPLOYMENT_URL}"$'\n\n'
+        COMMENT_BODY+="This deployment will be automatically cleaned up when the PR is closed."
 
         # Check for existing comment from this action (identified by header)
         EXISTING_COMMENT_ID=$(gh api "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" \

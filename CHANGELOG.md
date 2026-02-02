@@ -12,6 +12,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `.github/dependabot.yml` for automated GitHub Actions updates
 - `.gitignore` for local settings and Claude plans
 - `.claude/` configuration for AI assistant (coding rules, skills, workflow)
+- **deploy** action: Wait for ready feature
+  - Wait for deployment to be reachable before continuing
+  - New inputs: `wait-for-ready`, `health-endpoint`, `wait-timeout`, `wait-interval`
+  - Polls deployment URL until HTTP 2xx/3xx or timeout
+  - PR comment only appears after deployment is healthy (when combined with `comment-on-pr`)
+- **deploy** action: QR code in PR comment
+  - New input: `qr-code` (default: `false`)
+  - QR code for easy mobile testing of preview deployments
+  - Generated locally using `qrencode` (no external API calls, privacy-friendly)
 
 ### Changed
 - `.pre-commit-config.yaml`: require minimum version 4.5.0
@@ -38,6 +47,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - CONTRIBUTING.md with development guidelines
 - SECURITY.md with security policy
 - Pre-commit hooks configuration
+
+### Changed
+- **deploy** and **cleanup** actions: `github-token` now defaults to `github.token`
+  - No longer necessary to explicitly pass `github-token: ${{ secrets.GITHUB_TOKEN }}`
+  - Only needed when using a custom PAT for cross-repository operations
+
+### Internal
+- Added justfile for common development tasks
+- Added pre-commit.ci configuration (weekly autoupdates, skip duplicates with CI)
 
 ### Fixed
 - ShellCheck warnings: properly quoted GITHUB_OUTPUT

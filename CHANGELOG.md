@@ -39,6 +39,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - SECURITY.md with security policy
 - Pre-commit hooks configuration
 
+### Changed
+- **deploy** and **cleanup** actions: `github-token` now defaults to `github.token`
+  - No longer necessary to explicitly pass `github-token: ${{ secrets.GITHUB_TOKEN }}`
+  - Only needed when using a custom PAT for cross-repository operations
+
 ### Fixed
 - ShellCheck warnings: properly quoted GITHUB_OUTPUT
 - Actionlint configuration to only lint workflow files

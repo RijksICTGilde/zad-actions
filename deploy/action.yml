@@ -47,6 +47,22 @@ inputs:
     description: 'Custom header for the PR comment (default: "## 🚀 Preview Deployment")'
     required: false
     default: '## 🚀 Preview Deployment'
+  wait-for-ready:
+    description: 'Wait for deployment to be reachable before continuing'
+    required: false
+    default: 'false'
+  health-endpoint:
+    description: 'Endpoint to check for readiness (e.g., /, /health)'
+    required: false
+    default: '/'
+  wait-timeout:
+    description: 'Maximum time to wait for deployment in seconds'
+    required: false
+    default: '300'
+  wait-interval:
+    description: 'Seconds between readiness checks'
+    required: false
+    default: '10'
 
 outputs:
   url:
@@ -180,6 +196,35 @@ runs:
           echo "$BODY"
           exit 1
         fi
+
+    - name: Wait for deployment to be ready
+      if: inputs.wait-for-ready == 'true'
+      shell: bash
+      env:
+        DEPLOYMENT_URL: ${{ steps.deploy.outputs.url }}
+        HEALTH_ENDPOINT: ${{ inputs.health-endpoint }}
+        WAIT_TIMEOUT: ${{ inputs.wait-timeout }}
+        WAIT_INTERVAL: ${{ inputs.wait-interval }}
+      run: |
+        URL="${DEPLOYMENT_URL}${HEALTH_ENDPOINT}"
+        echo "Waiting for $URL to be ready..."
+
+        ELAPSED=0
+        while [ "$ELAPSED" -lt "$WAIT_TIMEOUT" ]; do
+          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 "$URL" || echo "000")
+
+          if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 400 ]; then
+            echo "Deployment is ready (HTTP $HTTP_CODE)"
+            exit 0
+          fi
+
+          echo "Waiting... (HTTP $HTTP_CODE, ${ELAPSED}s elapsed)"
+          sleep "$WAIT_INTERVAL"
+          ELAPSED=$((ELAPSED + WAIT_INTERVAL))
+        done
+
+        echo "::error::Deployment did not become ready within ${WAIT_TIMEOUT}s"
+        exit 1
 
     - name: Comment on PR
       if: inputs.comment-on-pr == 'true' && github.event_name == 'pull_request'

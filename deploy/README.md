@@ -21,6 +21,7 @@ Deploys a container image to ZAD Operations Manager.
 | `health-endpoint` | No | `/` | Endpoint to check for readiness |
 | `wait-timeout` | No | `300` | Maximum wait time in seconds |
 | `wait-interval` | No | `10` | Seconds between readiness checks |
+| `qr-code` | No | `false` | Include QR code for mobile access (generated locally via qrencode) |
 
 ## Outputs
 
@@ -85,11 +86,15 @@ The action will create a comment like this on the PR:
 
 > ## 🚀 Preview Deployment
 >
+> <img src="data:image/png;base64,..." width="100" height="100" align="right" alt="QR code">
+>
 > Your changes have been deployed to a preview environment:
 >
 > **URL:** https://web-pr85-my-project.your-domain.example.com
 >
 > This deployment will be automatically cleaned up when the PR is closed.
+
+The QR code is generated locally using `qrencode` (no external API calls), making it easy to open the preview on your phone for mobile testing. To enable it, set `qr-code: true`.
 
 On subsequent deployments to the same PR, the existing comment is updated instead of creating a new one.
 

@@ -8,6 +8,9 @@ Thank you for your interest in contributing to ZAD Actions!
 
 - Git
 - [uv](https://docs.astral.sh/uv/) (for installing pre-commit)
+- [just](https://github.com/casey/just) (command runner)
+- [ShellCheck](https://www.shellcheck.net/) (for bash script linting)
+- [actionlint](https://github.com/rhysd/actionlint) (for GitHub Actions validation)
 
 ### Setting Up Pre-commit Hooks
 
@@ -32,10 +35,14 @@ pre-commit install
 
 ### Testing Locally
 
-Run the pre-commit hooks to validate your changes:
+Use the justfile for common tasks:
 
 ```bash
-pre-commit run --all-files
+# List available commands
+just
+
+# Run linting
+just lint
 ```
 
 ### Testing in a Workflow

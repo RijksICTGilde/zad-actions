@@ -239,9 +239,17 @@ runs:
       run: |
         sudo apt-get install -y qrencode >/dev/null 2>&1 || true
         if command -v qrencode &> /dev/null; then
-          QR_BASE64=$(qrencode -o - -t PNG -s 4 -m 1 "$DEPLOYMENT_URL" | base64 -w0)
-          IMG="<img src='data:image/png;base64,${QR_BASE64}' width='100' height='100' align='right' alt='QR code'>"
-          echo "html=${IMG}" >> "$GITHUB_OUTPUT"
+          QR_TEXT=$(qrencode -t UTF8 -m 0 -l L -o - "$DEPLOYMENT_URL")
+          # Use delimiter for multi-line output
+          EOF=$(dd if=/dev/urandom bs=15 count=1 status=none | base64)
+          {
+            echo "html<<$EOF"
+            printf '<details>\n<summary>📱 Scan to open on mobile</summary>\n\n```\n'
+            echo "$QR_TEXT"
+            printf '```\n\n</details>'
+            echo ""
+            echo "$EOF"
+          } >> "$GITHUB_OUTPUT"
         else
           echo "Warning: qrencode not available, skipping QR code"
         fi
@@ -259,11 +267,11 @@ runs:
       run: |
         # Build the comment body
         COMMENT_BODY="${COMMENT_HEADER}"$'\n\n'
+        COMMENT_BODY+="Your changes have been deployed to a preview environment:"$'\n\n'
+        COMMENT_BODY+="**URL:** ${DEPLOYMENT_URL}"$'\n\n'
         if [ -n "$QR_HTML" ]; then
           COMMENT_BODY+="${QR_HTML}"$'\n\n'
         fi
-        COMMENT_BODY+="Your changes have been deployed to a preview environment:"$'\n\n'
-        COMMENT_BODY+="**URL:** ${DEPLOYMENT_URL}"$'\n\n'
         COMMENT_BODY+="This deployment will be automatically cleaned up when the PR is closed."
 
         # Check for existing comment from this action (identified by header)

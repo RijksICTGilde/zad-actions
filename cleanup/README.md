@@ -37,7 +37,7 @@ Removes a ZAD deployment and optionally cleans up associated GitHub resources (e
 
 ```yaml
 - name: Cleanup ZAD deployment
-  uses: RijksICTGilde/zad-actions/cleanup@v1
+  uses: RijksICTGilde/zad-actions/cleanup@v2
   with:
     api-key: ${{ secrets.ZAD_API_KEY }}
     project-id: regel-k4c
@@ -48,7 +48,7 @@ Removes a ZAD deployment and optionally cleans up associated GitHub resources (e
 
 ```yaml
 - name: Full cleanup
-  uses: RijksICTGilde/zad-actions/cleanup@v1
+  uses: RijksICTGilde/zad-actions/cleanup@v2
   with:
     api-key: ${{ secrets.ZAD_API_KEY }}
     project-id: regel-k4c
@@ -74,7 +74,7 @@ cleanup-preview:
     pull-requests: write  # For delete-pr-comment
   steps:
     - name: Cleanup PR preview
-      uses: RijksICTGilde/zad-actions/cleanup@v1
+      uses: RijksICTGilde/zad-actions/cleanup@v2
       with:
         api-key: ${{ secrets.ZAD_API_KEY }}
         project-id: my-project
@@ -94,7 +94,7 @@ cleanup-preview:
 When used with the deploy action's `comment-on-pr` feature, the cleanup action can remove the PR comment when the deployment is cleaned up:
 
 ```yaml
-- uses: RijksICTGilde/zad-actions/cleanup@v1
+- uses: RijksICTGilde/zad-actions/cleanup@v2
   with:
     api-key: ${{ secrets.ZAD_API_KEY }}
     project-id: my-project
@@ -177,7 +177,7 @@ Check cleanup results and take action:
 ```yaml
 - name: Cleanup deployment
   id: cleanup
-  uses: RijksICTGilde/zad-actions/cleanup@v1
+  uses: RijksICTGilde/zad-actions/cleanup@v2
   with:
     api-key: ${{ secrets.ZAD_API_KEY }}
     project-id: my-project

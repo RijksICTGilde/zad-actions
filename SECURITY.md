@@ -4,7 +4,8 @@
 
 | Version | Supported          |
 | ------- | ------------------ |
-| v1.x.x  | :white_check_mark: |
+| v2.x.x  | :white_check_mark: |
+| v1.x.x  | :x: End of life |
 
 ## Reporting a Vulnerability
 
@@ -36,7 +37,7 @@ Use the principle of least privilege when configuring GitHub tokens:
 
 ## Best Practices
 
-1. **Pin to specific versions**: Use `@v1.0.0` instead of `@v1` in production workflows for reproducibility
+1. **Pin to specific versions**: Use `@v2.0.0` instead of `@v2` in production workflows for reproducibility
 2. **Review actions before use**: Audit the action code before using it in your workflows
 3. **Limit secret access**: Only expose secrets to jobs that need them
 4. **Use environments**: Configure GitHub environments with required reviewers for production deployments

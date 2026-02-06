@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **cleanup** action: Handle deletion of last tagged package version by deleting entire package when needed
+
+### Changed
+- Update all documentation examples to use `@v2` instead of `@v1`
+- SECURITY.md: Mark v1.x.x as end of life, v2.x.x as supported
+
 ## [2.0.0] - 2026-02-02
 
 ### Added

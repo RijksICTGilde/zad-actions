@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Security
+- CI workflow: Add explicit `permissions: contents: read` to all jobs to comply with GitHub security best practices
+
 ## [2.0.1] - 2026-02-06
 
 ### Fixed

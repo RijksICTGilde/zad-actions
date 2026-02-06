@@ -19,7 +19,7 @@ Reusable GitHub Actions for deploying to [ZAD](https://github.com/RijksICTGilde/
 
 ```yaml
 - name: Deploy to ZAD
-  uses: RijksICTGilde/zad-actions/deploy@v1
+  uses: RijksICTGilde/zad-actions/deploy@v2
   with:
     api-key: ${{ secrets.ZAD_API_KEY }}
     project-id: my-project
@@ -32,7 +32,7 @@ Reusable GitHub Actions for deploying to [ZAD](https://github.com/RijksICTGilde/
 
 ```yaml
 - name: Cleanup ZAD deployment
-  uses: RijksICTGilde/zad-actions/cleanup@v1
+  uses: RijksICTGilde/zad-actions/cleanup@v2
   with:
     api-key: ${{ secrets.ZAD_API_KEY }}
     project-id: my-project
@@ -118,7 +118,7 @@ jobs:
     steps:
       - name: Deploy to ZAD
         id: deploy
-        uses: RijksICTGilde/zad-actions/deploy@v1
+        uses: RijksICTGilde/zad-actions/deploy@v2
         with:
           api-key: ${{ secrets.ZAD_API_KEY }}
           project-id: my-project
@@ -135,7 +135,7 @@ jobs:
       packages: write
     steps:
       - name: Cleanup
-        uses: RijksICTGilde/zad-actions/cleanup@v1
+        uses: RijksICTGilde/zad-actions/cleanup@v2
         with:
           api-key: ${{ secrets.ZAD_API_KEY }}
           project-id: my-project
@@ -159,7 +159,7 @@ jobs:
     steps:
       - name: Deploy to ZAD
         id: deploy
-        uses: RijksICTGilde/zad-actions/deploy@v1
+        uses: RijksICTGilde/zad-actions/deploy@v2
         with:
           api-key: ${{ secrets.ZAD_API_KEY }}
           project-id: my-project

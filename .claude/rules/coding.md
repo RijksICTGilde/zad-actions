@@ -43,7 +43,8 @@ BODY=$(echo "$RESPONSE" | sed '$d')
 
 ## Commits
 
-Before committing, always update CHANGELOG.md under [Unreleased].
+- Before committing, always update CHANGELOG.md under [Unreleased]
+- Do NOT add "Co-Authored-By: Claude" to commit messages
 
 ## Documentation
 

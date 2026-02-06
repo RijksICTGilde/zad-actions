@@ -263,11 +263,31 @@ runs:
         DELETED=false
         for VERSION_ID in $VERSIONS; do
           echo "Deleting version: $VERSION_ID"
-          if gh api "orgs/$CONTAINER_ORG/packages/container/$CONTAINER_NAME/versions/$VERSION_ID" -X DELETE 2>/dev/null; then
+
+          # Capture both stdout and stderr to detect "last tagged version" error
+          DELETE_OUTPUT=$(gh api "orgs/$CONTAINER_ORG/packages/container/$CONTAINER_NAME/versions/$VERSION_ID" -X DELETE 2>&1)
+          DELETE_RESULT=$?
+
+          if [ $DELETE_RESULT -eq 0 ]; then
             echo "Deleted container version: $VERSION_ID"
             DELETED=true
           else
-            echo "Failed to delete version: $VERSION_ID"
+            echo "$DELETE_OUTPUT"
+
+            # Check if this is the "last tagged version" error
+            if echo "$DELETE_OUTPUT" | grep -q "You cannot delete the last tagged version"; then
+              echo "This is the last tagged version. Deleting entire package instead..."
+
+              # Delete the entire package
+              if gh api "orgs/$CONTAINER_ORG/packages/container/$CONTAINER_NAME" -X DELETE 2>&1; then
+                echo "Successfully deleted entire package: $CONTAINER_NAME"
+                DELETED=true
+              else
+                echo "::warning::Failed to delete entire package: $CONTAINER_NAME"
+              fi
+            else
+              echo "Failed to delete version: $VERSION_ID"
+            fi
           fi
         done
 

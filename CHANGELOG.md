@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **cleanup** action: Handle deletion of last tagged package version by deleting entire package when needed
+
 ## [2.0.0] - 2026-02-02
 
 ### Added

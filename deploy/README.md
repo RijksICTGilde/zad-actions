@@ -35,7 +35,7 @@ Deploys a container image to ZAD Operations Manager.
 
 ```yaml
 - name: Deploy to ZAD
-  uses: RijksICTGilde/zad-actions/deploy@v1
+  uses: RijksICTGilde/zad-actions/deploy@v2
   with:
     api-key: ${{ secrets.ZAD_API_KEY }}
     project-id: my-project
@@ -49,7 +49,7 @@ Deploys a container image to ZAD Operations Manager.
 ```yaml
 - name: Deploy PR Preview
   id: deploy
-  uses: RijksICTGilde/zad-actions/deploy@v1
+  uses: RijksICTGilde/zad-actions/deploy@v2
   with:
     api-key: ${{ secrets.ZAD_API_KEY }}
     project-id: my-project
@@ -71,7 +71,7 @@ deploy-preview:
     pull-requests: write
   steps:
     - name: Deploy PR Preview
-      uses: RijksICTGilde/zad-actions/deploy@v1
+      uses: RijksICTGilde/zad-actions/deploy@v2
       with:
         api-key: ${{ secrets.ZAD_API_KEY }}
         project-id: my-project
@@ -114,7 +114,7 @@ deploy:
   steps:
     - name: Deploy to ZAD
       id: deploy
-      uses: RijksICTGilde/zad-actions/deploy@v1
+      uses: RijksICTGilde/zad-actions/deploy@v2
       with:
         api-key: ${{ secrets.ZAD_API_KEY }}
         project-id: my-project
@@ -160,7 +160,7 @@ deploy:
       component: [frontend, api, worker]
   steps:
     - name: Deploy ${{ matrix.component }}
-      uses: RijksICTGilde/zad-actions/deploy@v1
+      uses: RijksICTGilde/zad-actions/deploy@v2
       with:
         api-key: ${{ secrets.ZAD_API_KEY }}
         project-id: my-project
@@ -179,7 +179,7 @@ deploy:
   steps:
     - name: Deploy to preview
       if: github.ref == 'refs/heads/staging'
-      uses: RijksICTGilde/zad-actions/deploy@v1
+      uses: RijksICTGilde/zad-actions/deploy@v2
       with:
         api-key: ${{ secrets.ZAD_API_KEY }}
         project-id: my-project
@@ -189,7 +189,7 @@ deploy:
 
     - name: Deploy to production
       if: github.ref == 'refs/heads/main'
-      uses: RijksICTGilde/zad-actions/deploy@v1
+      uses: RijksICTGilde/zad-actions/deploy@v2
       with:
         api-key: ${{ secrets.ZAD_API_KEY }}
         project-id: my-project
@@ -204,7 +204,7 @@ Wait for deployment to be healthy using the built-in `wait-for-ready` feature:
 
 ```yaml
 - name: Deploy to ZAD
-  uses: RijksICTGilde/zad-actions/deploy@v1
+  uses: RijksICTGilde/zad-actions/deploy@v2
   with:
     api-key: ${{ secrets.ZAD_API_KEY }}
     project-id: my-project

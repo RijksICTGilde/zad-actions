@@ -86,15 +86,20 @@ The action will create a comment like this on the PR:
 
 > ## 🚀 Preview Deployment
 >
-> <img src="data:image/png;base64,..." width="100" height="100" align="right" alt="QR code">
->
 > Your changes have been deployed to a preview environment:
 >
 > **URL:** https://web-pr85-my-project.your-domain.example.com
 >
 > This deployment will be automatically cleaned up when the PR is closed.
 
-The QR code is generated locally using `qrencode` (no external API calls), making it easy to open the preview on your phone for mobile testing. To enable it, set `qr-code: true`.
+To include a text-based QR code for easy mobile access, set `qr-code: true`:
+
+```yaml
+comment-on-pr: true
+qr-code: true
+```
+
+The QR code is generated locally using `qrencode` (no external dependencies), and appears in a collapsible section in the PR comment.
 
 On subsequent deployments to the same PR, the existing comment is updated instead of creating a new one.
 

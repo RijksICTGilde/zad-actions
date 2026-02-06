@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **deploy** QR code not displaying in PR comments (switched from base64 PNG to text-based UTF8 format)
+
 ## [2.0.0] - 2026-02-02
 
 ### Added

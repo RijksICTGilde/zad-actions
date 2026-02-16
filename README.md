@@ -3,6 +3,7 @@
 [![CI](https://github.com/RijksICTGilde/zad-actions/actions/workflows/ci.yml/badge.svg)](https://github.com/RijksICTGilde/zad-actions/actions/workflows/ci.yml)
 [![License: EUPL-1.2](https://img.shields.io/badge/License-EUPL--1.2-blue.svg)](https://opensource.org/licenses/EUPL-1.2)
 [![GitHub release](https://img.shields.io/github/v/release/RijksICTGilde/zad-actions)](https://github.com/RijksICTGilde/zad-actions/releases)
+[![Claude Code plugin](https://img.shields.io/badge/Claude_Code-plugin-blueviolet.svg)](https://github.com/MinBZK/overheid-claude-plugins)
 
 Reusable GitHub Actions for deploying to [ZAD](https://github.com/RijksICTGilde/RIG-Cluster) (Zelfservice voor Applicatie Deployment).
 
@@ -180,6 +181,23 @@ These actions use the ZAD Operations Manager API:
 Deployed applications are accessible at:
 ```
 https://{component}-{deployment}-{project}.rig.prd1.gn2.quattro.rijksapps.nl
+```
+
+## Claude Code Plugin
+
+This repository is also available as a [Claude Code](https://docs.anthropic.com/en/docs/claude-code) plugin via the [overheid-plugins marketplace](https://github.com/MinBZK/overheid-claude-plugins). It provides 3 skills to assist with development:
+
+| Skill | Description |
+|-------|-------------|
+| `/zad-actions:lint` | Run pre-commit linting |
+| `/zad-actions:release` | Create a new release with changelog extraction |
+| `/zad-actions:validate-action` | Validate action.yml files for correctness |
+
+### Install
+
+```bash
+claude plugin marketplace add MinBZK/overheid-claude-plugins
+claude plugin install zad-actions@overheid-plugins
 ```
 
 ## Contributing

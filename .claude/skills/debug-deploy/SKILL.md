@@ -1,0 +1,93 @@
+---
+name: debug-deploy
+description: >-
+  Diagnose falende ZAD deployments of cleanup actions. Gebruik bij 'deployment
+  faalt', 'error', 'deploy werkt niet', 'cleanup faalt', 'HTTP error', '401',
+  '403', '404'.
+model: sonnet
+allowed-tools:
+  - Read(*)
+  - Grep(*)
+---
+
+# Debug ZAD Deployment
+
+Diagnose and troubleshoot failing ZAD deployments and cleanup actions.
+
+## Usage
+
+```
+/debug-deploy <error message or description>
+```
+
+Example: `/debug-deploy HTTP 401`, `/debug-deploy deployment not reachable`
+
+## Diagnostic decision tree
+
+Analyze the error and match against these patterns:
+
+### ZAD API errors (deploy/cleanup)
+
+| HTTP Code | Diagnosis | Fix |
+|-----------|-----------|-----|
+| `000` | Network problem — runner can't reach ZAD API | Check runner network, verify `api-base-url` is correct. Default: `https://operations-manager.rig.prd1.gn2.quattro.rijksapps.nl/api` |
+| `401` | API key invalid or expired | Regenerate `ZAD_API_KEY` in Operations Manager and update the repository secret |
+| `403` | API key lacks permission for this project | Verify the API key has access to the specified `project-id`. Request access via Operations Manager |
+| `404` | Project not found | Check `project-id` spelling. Verify project exists in ZAD Operations Manager |
+| `5xx` | ZAD API server error | Temporary issue — retry the workflow. If persistent, check ZAD Operations Manager status |
+
+### Deployment readiness errors (wait-for-ready)
+
+| Symptom | Diagnosis | Fix |
+|---------|-----------|-----|
+| Timeout waiting for deployment | Container not starting or slow startup | Increase `wait-timeout` (default: 300s). Check container logs in ZAD. Verify `health-endpoint` returns HTTP 2xx/3xx |
+| HTTP 502/503 from health endpoint | Container crashing or not listening on correct port | Check container listens on the expected port. Verify environment variables are set correctly in ZAD |
+
+### GitHub environment deletion errors
+
+| Symptom | Diagnosis | Fix |
+|---------|-----------|-----|
+| `403` on environment delete | Token lacks admin permission | `github-admin-token` must be a PAT with `repo` scope or a GitHub App token with `administration:write`. The default `GITHUB_TOKEN` cannot delete environments |
+| Environment not deleted but no error | `github-admin-token` not provided | Set `github-admin-token: ${{ secrets.GITHUB_ADMIN_TOKEN }}` — this is a separate input from `github-token` |
+
+### GitHub deployment deletion errors
+
+| Symptom | Diagnosis | Fix |
+|---------|-----------|-----|
+| Can't delete deployments | Missing permission | Add `permissions: deployments: write` to the job. Use `github-token` (not admin token) |
+
+### Container image deletion errors
+
+| Symptom | Diagnosis | Fix |
+|---------|-----------|-----|
+| Can't delete container | Missing permission | The token needs `packages:delete` scope. For org packages, the token user must have admin access to the package |
+| Container not found | Wrong org/name/tag | Verify `container-org`, `container-name`, and `container-tag` match exactly. Tag format is typically `pr-<number>` |
+
+### PR comment errors
+
+| Symptom | Diagnosis | Fix |
+|---------|-----------|-----|
+| Comment not posted/deleted | Missing permission | Add `permissions: pull-requests: write` to the job |
+| Comment not found for deletion | Different header | Ensure `comment-header` matches between deploy and cleanup actions (default: `## 🚀 Preview Deployment`) |
+
+### Token confusion guide
+
+ZAD Actions use up to 3 different tokens:
+
+| Input | Purpose | Default | When to customize |
+|-------|---------|---------|-------------------|
+| `api-key` | ZAD Operations Manager API auth | none (required) | Always set as `${{ secrets.ZAD_API_KEY }}` |
+| `github-token` | PR comments, deployment deletion, container deletion | `${{ github.token }}` | Only when you need cross-repo access (use a PAT) |
+| `github-admin-token` | Environment deletion | none (optional) | Required only for `delete-github-env: true`. Must be a PAT with `repo` scope |
+
+## ZAD API docs
+
+Full API documentation: `https://operations-manager.rig.prd1.gn2.quattro.rijksapps.nl/docs`
+
+## General debugging steps
+
+1. **Read the full error message** in the GitHub Actions log — the actions output specific `::error::` annotations
+2. **Check the HTTP status code** — each code has a specific meaning (see table above)
+3. **Verify secrets are set** — go to repo Settings > Secrets and variables > Actions
+4. **Check permissions block** — ensure the job has the right `permissions:` entries
+5. **Test API connectivity** — the ZAD API URL should be reachable from GitHub-hosted runners

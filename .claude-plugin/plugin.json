@@ -1,5 +1,6 @@
 {
   "name": "zad-actions",
   "description": "Skills voor ZAD deployment: linting, releases en GitHub Actions validatie voor Zelfservice voor Applicatie Deployment.",
-  "version": "1.0.0"
+  "version": "1.0.0",
+  "skills": "./.claude/skills/"
 }

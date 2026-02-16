@@ -1,5 +1,5 @@
 ---
-name: zad-release
+name: release
 description: >-
   Maak een nieuwe release van ZAD Actions. Gebruik bij vragen over
   'release', 'versie', 'tag', 'version', 'publiceren', 'uitbrengen'.

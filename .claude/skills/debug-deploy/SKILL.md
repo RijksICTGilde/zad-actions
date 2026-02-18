@@ -26,6 +26,16 @@ Example: `/debug-deploy HTTP 401`, `/debug-deploy deployment not reachable`
 
 Analyze the error and match against these patterns:
 
+### Bot PR skipping (deploy/cleanup)
+
+Both deploy and cleanup actions skip bot PRs by default (`skip-bot-prs: 'true'`).
+
+| Symptom | Diagnosis | Fix |
+|---------|-----------|-----|
+| Deployment/cleanup didn't run on a bot PR (dependabot, renovate, pre-commit-ci, github-actions) | Expected behavior — `skip-bot-prs` defaults to `true` | Set `skip-bot-prs: 'false'` to deploy bot PRs |
+| `skipped` output is `true` | Bot PR detected via GitHub user type or known bot list | If intentional, no action needed. Otherwise set `skip-bot-prs: 'false'` |
+| Deployment skipped for a non-bot PR | Check if the PR author has user type `Bot` in GitHub | Verify user account type. Custom bots with `[bot]` suffix are also detected |
+
 ### ZAD API errors (deploy/cleanup)
 
 | HTTP Code | Diagnosis | Fix |

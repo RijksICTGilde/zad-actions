@@ -14,7 +14,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Detects bots via GitHub user type and known bot list (dependabot, renovate, pre-commit-ci, github-actions)
   - Set `skip-bot-prs: 'false'` to restore previous behavior
   - Supports both `pull_request` and `pull_request_target` events
-- **check-bot-pr** shared action: Reusable bot detection used by deploy and cleanup
 
 ### Security
 - CI workflow: Add explicit `permissions: contents: read` to all jobs to comply with GitHub security best practices

@@ -78,16 +78,33 @@ outputs:
     value: ${{ steps.deploy.outputs.url }}
   skipped:
     description: 'Whether deployment was skipped due to bot PR detection'
-    value: ${{ steps.bot-check.outputs.skipped }}
+    value: ${{ steps.bot-check.outputs.skipped == 'true' && 'true' || 'false' }}
 
 runs:
   using: 'composite'
   steps:
     - name: Check for bot PR
       id: bot-check
-      uses: ./check-bot-pr
-      with:
-        skip-bot-prs: ${{ inputs.skip-bot-prs }}
+      if: inputs.skip-bot-prs == 'true' && (github.event_name == 'pull_request' || github.event_name == 'pull_request_target')
+      shell: bash
+      env:
+        PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+        PR_AUTHOR_TYPE: ${{ github.event.pull_request.user.type }}
+      run: |
+        KNOWN_BOTS=("dependabot[bot]" "renovate[bot]" "pre-commit-ci[bot]" "github-actions[bot]")
+        if [ "$PR_AUTHOR_TYPE" = "Bot" ]; then
+          echo "::notice::Skipping: PR author '$PR_AUTHOR' is a bot (type: $PR_AUTHOR_TYPE)"
+          echo "skipped=true" >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+        for bot in "${KNOWN_BOTS[@]}"; do
+          if [ "$PR_AUTHOR" = "$bot" ]; then
+            echo "::notice::Skipping: PR author '$PR_AUTHOR' is a known bot"
+            echo "skipped=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+        done
+        echo "skipped=false" >> "$GITHUB_OUTPUT"
 
     - name: Deploy to ZAD
       id: deploy

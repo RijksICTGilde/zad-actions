@@ -22,12 +22,14 @@ Deploys a container image to ZAD Operations Manager.
 | `wait-timeout` | No | `300` | Maximum wait time in seconds |
 | `wait-interval` | No | `10` | Seconds between readiness checks |
 | `qr-code` | No | `false` | Include QR code for mobile access (generated locally via qrencode) |
+| `skip-bot-prs` | No | `true` | Skip deployment for PRs created by bots (dependabot, renovate, pre-commit-ci, etc.) |
 
 ## Outputs
 
-| Name  | Description                     |
-|-------|---------------------------------|
-| `url` | URL of the deployed application |
+| Name      | Description                                           |
+|-----------|-------------------------------------------------------|
+| `url`     | URL of the deployed application                       |
+| `skipped` | Whether deployment was skipped due to bot PR detection |
 
 ## Example Usage
 

@@ -136,3 +136,4 @@ jobs:
 - `pull-requests: write` permission is needed for `comment-on-pr` and `delete-pr-comment`
 - `packages: delete` permission is needed for container deletion (note: different from `packages: write`)
 - ZAD URL pattern: `https://{component}-{deployment}-{project}.rig.prd1.gn2.quattro.rijksapps.nl`
+- Bot PRs (dependabot, renovate, pre-commit-ci, github-actions) are skipped by default. Add `skip-bot-prs: 'false'` to deploy/cleanup if the user wants bot PR deployments

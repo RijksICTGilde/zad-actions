@@ -20,6 +20,7 @@ Removes a ZAD deployment and optionally cleans up associated GitHub resources (e
 | `api-base-url` | No | `https://operations-manager.rig.prd1.gn2.quattro.rijksapps.nl/api` | ZAD Operations Manager API base URL |
 | `delete-pr-comment` | No | `true` | Delete the deploy PR comment |
 | `comment-header` | No | `## 🚀 Preview Deployment` | Header of the deploy comment to find and delete |
+| `skip-bot-prs` | No | `true` | Skip cleanup for PRs created by bots (dependabot, renovate, pre-commit-ci, etc.) |
 
 ## Outputs
 
@@ -30,6 +31,7 @@ Removes a ZAD deployment and optionally cleans up associated GitHub resources (e
 | `github-deployments-deleted` | Whether GitHub deployments were deleted                  |
 | `container-deleted`          | Whether the container image was deleted                  |
 | `pr-comment-deleted`         | Whether the PR comment was deleted                       |
+| `skipped`                    | Whether cleanup was skipped due to bot PR detection      |
 
 ## Example Usage
 

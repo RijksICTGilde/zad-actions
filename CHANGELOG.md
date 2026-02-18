@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added
+- **deploy** and **cleanup** actions: Skip bot PR deployments by default
+  - New input: `skip-bot-prs` (default: `true`)
+  - New output: `skipped`
+  - Detects bots via GitHub user type and known bot list (dependabot, renovate, pre-commit-ci, github-actions)
+  - Set `skip-bot-prs: 'false'` to restore previous behavior
+
 ### Security
 - CI workflow: Add explicit `permissions: contents: read` to all jobs to comply with GitHub security best practices
 

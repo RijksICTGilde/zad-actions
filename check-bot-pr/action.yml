@@ -1,0 +1,43 @@
+# SPDX-License-Identifier: EUPL-1.2
+name: 'Check Bot PR'
+description: 'Detect if a PR was created by a bot (dependabot, renovate, pre-commit-ci, etc.)'
+author: 'RijksICTGilde'
+
+inputs:
+  skip-bot-prs:
+    description: 'Enable bot PR detection'
+    required: false
+    default: 'true'
+
+outputs:
+  skipped:
+    description: 'Whether the action should be skipped due to bot PR detection'
+    # When the step does not run (non-PR event or skip-bot-prs is false),
+    # the output is empty, so this expression defaults to 'false'.
+    value: ${{ steps.bot-check.outputs.skipped == 'true' && 'true' || 'false' }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Check for bot PR
+      id: bot-check
+      if: inputs.skip-bot-prs == 'true' && (github.event_name == 'pull_request' || github.event_name == 'pull_request_target')
+      shell: bash
+      env:
+        PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+        PR_AUTHOR_TYPE: ${{ github.event.pull_request.user.type }}
+      run: |
+        KNOWN_BOTS=("dependabot[bot]" "renovate[bot]" "pre-commit-ci[bot]" "github-actions[bot]")
+        if [ "$PR_AUTHOR_TYPE" = "Bot" ]; then
+          echo "::notice::Skipping: PR author '$PR_AUTHOR' is a bot (type: $PR_AUTHOR_TYPE)"
+          echo "skipped=true" >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+        for bot in "${KNOWN_BOTS[@]}"; do
+          if [ "$PR_AUTHOR" = "$bot" ]; then
+            echo "::notice::Skipping: PR author '$PR_AUTHOR' is a known bot"
+            echo "skipped=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+        done
+        echo "skipped=false" >> "$GITHUB_OUTPUT"

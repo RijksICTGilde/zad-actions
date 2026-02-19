@@ -72,7 +72,7 @@ inputs:
     required: false
     default: 'true'
   max-retries:
-    description: 'Maximum number of retries for transient API errors (0 to disable)'
+    description: 'Maximum number of retries for transient ZAD API errors (0 to disable)'
     required: false
     default: '3'
   retry-delay:
@@ -96,7 +96,7 @@ runs:
       if: inputs.skip-bot-prs == 'true' && (github.event_name == 'pull_request' || github.event_name == 'pull_request_target')
       shell: bash
       env:
-        PR_AUTHOR: ${{ inputs.github-token && github.event.pull_request.user.login || '' }}
+        PR_AUTHOR: ${{ github.event.pull_request.user.login }}
         PR_AUTHOR_TYPE: ${{ github.event.pull_request.user.type }}
       run: |
         KNOWN_BOTS=("dependabot[bot]" "renovate[bot]" "pre-commit-ci[bot]" "github-actions[bot]")

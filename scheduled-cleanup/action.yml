@@ -63,7 +63,7 @@ inputs:
     required: false
     default: 'https://operations-manager.rig.prd1.gn2.quattro.rijksapps.nl/api'
   max-retries:
-    description: 'Maximum number of retries for transient API errors (0 to disable)'
+    description: 'Maximum number of retries for transient ZAD API errors (0 to disable)'
     required: false
     default: '3'
   retry-delay:
@@ -91,11 +91,16 @@ runs:
       env:
         GH_TOKEN: ${{ inputs.github-token }}
         GITHUB_REPOSITORY: ${{ github.repository }}
+        PROJECT_ID: ${{ inputs.project-id }}
         ENV_PATTERN: ${{ inputs.environment-pattern }}
         PR_NUMBER_PATTERN: ${{ inputs.pr-number-pattern }}
         MAX_AGE_DAYS: ${{ inputs.max-age-days }}
       run: |
-        # Validate inputs
+        # Validate inputs (fail early before expensive scanning)
+        if ! echo "$PROJECT_ID" | grep -qE '^[a-zA-Z0-9._-]+$'; then
+          echo "Error: project-id contains invalid characters (allowed: a-z, A-Z, 0-9, ., _, -)"
+          exit 1
+        fi
         if ! echo "$MAX_AGE_DAYS" | grep -qE '^[0-9]+$'; then
           echo "Error: max-age-days must be a non-negative integer"
           exit 1
@@ -118,6 +123,10 @@ runs:
         fi
         if [ ${#PR_NUMBER_PATTERN} -gt 200 ]; then
           echo "Error: pr-number-pattern is too long (max 200 characters)"
+          exit 1
+        fi
+        if echo "$PR_NUMBER_PATTERN" | grep -qE '[;&|`$]|/e'; then
+          echo "Error: pr-number-pattern contains disallowed characters or flags (;&|\`\$ and sed 'e' flag are not allowed)"
           exit 1
         fi
 

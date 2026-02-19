@@ -22,13 +22,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Dry-run mode for safe testing
   - Cleans up ZAD deployments, GitHub deployments/environments, and container images
   - Rate limiting (0.5s delay) between GitHub API calls to avoid rate limits
-  - Input validation for `environment-pattern` and `pr-number-pattern`
+  - Input validation for `environment-pattern` and `pr-number-pattern` (including sed `e` flag injection protection)
   - `cleaned-count` output defaults to `0` when no cleanup is needed
-
-### Fixed
-- **scheduled-cleanup**: `stale-environments` output now uses compact JSON (single line) to prevent GITHUB_OUTPUT corruption
-- **scheduled-cleanup**: Date parsing failure no longer silently falls back to epoch 0 (which would mark all environments as stale); instead warns and skips the age check
-- **scheduled-cleanup**: Container deletion no longer leaks stderr to stdout via `2>&1`
+  - Compact JSON output for `stale-environments` to prevent GITHUB_OUTPUT corruption
+  - Safe date parsing: warns and skips age check instead of falling back to epoch 0
+  - Container deletion uses `2>/dev/null` instead of `2>&1` to prevent stderr leaking into captured output
 
 ### Changed
 - **deploy**, **cleanup**: `github-token` default now consistently quoted as `'${{ github.token }}'`

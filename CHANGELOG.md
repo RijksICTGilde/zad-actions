@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added
+- **deploy** action: New `path-suffix` input to append a path to the deployment URL (e.g. `/docs/`)
+  - The suffix is included in the `url` output, PR comment, and QR code
+  - Handles leading/trailing slashes gracefully
+
 ## [2.2.0] - 2026-02-19
 
 ### Added

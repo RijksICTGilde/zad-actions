@@ -25,6 +25,7 @@ Deploys a container image to ZAD Operations Manager.
 | `skip-bot-prs` | No | `true` | Skip deployment for PRs created by bots (dependabot, renovate, pre-commit-ci, etc.) |
 | `max-retries` | No | `3` | Maximum number of retries for transient API errors (0 to disable) |
 | `retry-delay` | No | `2` | Initial retry delay in seconds (doubles each retry) |
+| `path-suffix` | No | `''` | Path to append to the deployment URL (e.g. `/docs/`) |
 
 ## Outputs
 
@@ -201,6 +202,24 @@ deploy:
         component: web
         image: ghcr.io/org/app:${{ github.sha }}
 ```
+
+### Deployment with Custom Path Suffix
+
+If your application is served under a subpath (e.g. `/docs/`), use `path-suffix` to include it in the output URL, PR comment, and QR code:
+
+```yaml
+- name: Deploy to ZAD
+  uses: RijksICTGilde/zad-actions/deploy@v2
+  with:
+    api-key: ${{ secrets.ZAD_API_KEY }}
+    project-id: my-project
+    deployment-name: production
+    component: web
+    image: ghcr.io/org/app:latest
+    path-suffix: /docs/
+```
+
+This produces a URL like `https://web-production-my-project.your-domain.example.com/docs/`.
 
 ### Deploy with Deployment Status Check
 

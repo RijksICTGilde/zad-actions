@@ -318,7 +318,11 @@ runs:
 
     - name: Generate QR code
       id: qr
-      if: steps.bot-check.outputs.skipped != 'true' && inputs.qr-code == 'true' && inputs.comment-on-pr == 'true' && github.event_name == 'pull_request'
+      if: >-
+        steps.bot-check.outputs.skipped != 'true'
+        && inputs.qr-code == 'true'
+        && inputs.comment-on-pr == 'true'
+        && github.event_name == 'pull_request'
       shell: bash
       env:
         DEPLOYMENT_URL: ${{ steps.deploy.outputs.url }}

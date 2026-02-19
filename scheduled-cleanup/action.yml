@@ -155,7 +155,7 @@ runs:
             else
               wait_seconds=5
             fi
-            echo "::warning::Rate limit low ($remaining remaining), waiting ${wait_seconds}s..."
+            echo "::warning::Rate limit low ($remaining remaining), waiting ${wait_seconds}s..." >&2
             sleep "$wait_seconds"
           fi
         }

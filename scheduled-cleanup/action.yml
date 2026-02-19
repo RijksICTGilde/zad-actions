@@ -111,7 +111,7 @@ runs:
           echo "Error: environment-pattern is too long (max 200 characters)"
           exit 1
         fi
-        if echo "$ENV_PATTERN" | grep -qE '[;&|`$]'; then
+        if echo "$ENV_PATTERN" | grep -qE '[;&|`]'; then
           echo "Error: environment-pattern contains disallowed characters"
           exit 1
         fi
@@ -125,8 +125,8 @@ runs:
           echo "Error: pr-number-pattern is too long (max 200 characters)"
           exit 1
         fi
-        if echo "$PR_NUMBER_PATTERN" | grep -qE '[;&|`$]|/e'; then
-          echo "Error: pr-number-pattern contains disallowed characters or flags (;&|\`\$ and sed 'e' flag are not allowed)"
+        if echo "$PR_NUMBER_PATTERN" | grep -qE '[;&|`]|/e'; then
+          echo "Error: pr-number-pattern contains disallowed characters or flags (;&|\` and sed 'e' flag are not allowed)"
           exit 1
         fi
 
@@ -280,7 +280,7 @@ runs:
           echo "Error: pr-number-pattern must be a sed substitution expression (starting with 's/')"
           exit 1
         fi
-        if echo "$PR_NUMBER_PATTERN" | grep -qE '[;&|`$]|/e'; then
+        if echo "$PR_NUMBER_PATTERN" | grep -qE '[;&|`]|/e'; then
           echo "Error: pr-number-pattern contains disallowed characters"
           exit 1
         fi

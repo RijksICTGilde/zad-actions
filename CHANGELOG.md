@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added
+- **deploy**, **cleanup**, and **scheduled-cleanup** actions: Retry with exponential backoff for transient ZAD API errors
+  - New inputs: `max-retries` (default: `3`), `retry-delay` (default: `2`)
+  - Retries on network errors (HTTP 000), rate limits (429), and server errors (500-504)
+  - Does not retry on auth errors (401, 403) or not found (404)
+  - Backoff: 2s → 4s → 8s (worst-case 14s extra)
+  - Retry logic extracted into shared `curl_with_retry` bash function
+  - Note: only ZAD API calls are retried; GitHub API calls use best-effort error handling
+- **scheduled-cleanup** action: Periodically find and clean up stale PR environments
+  - Scans GitHub environments matching a configurable regex pattern
+  - Checks PR state and marks closed/merged PRs as stale
+  - Optional age-based cleanup via `max-age-days`
+  - Dry-run mode for safe testing
+  - Cleans up ZAD deployments, GitHub deployments/environments, and container images
+  - Smart rate limiting: reads `X-RateLimit-Remaining` header and only pauses when approaching the limit (replaces blind 0.5s delay)
+  - Input validation for `environment-pattern` and `pr-number-pattern` (including sed `e` flag injection protection)
+  - `cleaned-count` output defaults to `0` when no cleanup is needed
+  - Compact JSON output for `stale-environments` to prevent GITHUB_OUTPUT corruption
+  - Safe date parsing: warns and skips age check instead of falling back to epoch 0
+  - Container deletion uses `2>/dev/null` instead of `2>&1` to prevent stderr leaking into captured output
+
+### Changed
+- **deploy**, **cleanup**: ZAD API calls now retry 3 times by default on transient errors (was 0).
+  This adds up to 14s extra delay on persistent failures. Set `max-retries: '0'` to restore previous fail-fast behavior.
+- **deploy**, **cleanup**: `github-token` default now consistently quoted as `'${{ github.token }}'`
+
+### Fixed
+- **scheduled-cleanup**: `cleaned-count` no longer counts 404 (already deleted) as successfully cleaned
+- **scheduled-cleanup**: Admin token no longer leaks into subsequent operations if environment deletion fails (uses subshell)
+- **scheduled-cleanup**: `pr-number-pattern` is now validated in both find-stale and cleanup steps (defense-in-depth)
+
 ## [2.1.0] - 2026-02-18
 
 ### Added

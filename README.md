@@ -13,6 +13,7 @@ Reusable GitHub Actions for deploying to [ZAD](https://github.com/RijksICTGilde/
 |--------|-------------|
 | [deploy](./deploy) | Deploy a container image to ZAD |
 | [cleanup](./cleanup) | Remove a ZAD deployment and optionally clean up GitHub resources |
+| [scheduled-cleanup](./scheduled-cleanup) | Periodically find and clean up stale PR environments |
 
 ## Quick Start
 
@@ -46,6 +47,31 @@ Reusable GitHub Actions for deploying to [ZAD](https://github.com/RijksICTGilde/
     container-tag: pr-123
     github-token: ${{ secrets.GITHUB_TOKEN }}
     github-admin-token: ${{ secrets.GITHUB_ADMIN_TOKEN }}
+```
+
+### Scheduled Cleanup
+
+```yaml
+name: Cleanup Stale Environments
+on:
+  schedule:
+    - cron: '0 2 * * 1'
+concurrency:
+  group: scheduled-cleanup
+  cancel-in-progress: false
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    permissions:
+      deployments: write
+      packages: write
+      pull-requests: read
+    steps:
+      - uses: RijksICTGilde/zad-actions/scheduled-cleanup@v2
+        with:
+          api-key: ${{ secrets.ZAD_API_KEY }}
+          project-id: my-project
+          github-admin-token: ${{ secrets.GITHUB_ADMIN_TOKEN }}
 ```
 
 ## Authentication

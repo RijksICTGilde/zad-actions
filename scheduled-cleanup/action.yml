@@ -1,0 +1,406 @@
+# SPDX-License-Identifier: EUPL-1.2
+name: 'Scheduled Cleanup of Stale PR Environments'
+description: 'Find and clean up ZAD deployments for closed/merged PRs on a schedule'
+author: 'RijksICTGilde'
+
+branding:
+  icon: 'clock'
+  color: 'orange'
+
+inputs:
+  api-key:
+    description: 'ZAD API key (ZAD_API_KEY secret)'
+    required: true
+  project-id:
+    description: 'ZAD project identifier (e.g., regel-k4c)'
+    required: true
+  environment-pattern:
+    description: 'Regex pattern to match PR environments (e.g., "^pr-?[0-9]+$")'
+    required: false
+    default: '^pr-?[0-9]+$'
+  pr-number-pattern:
+    description: 'Sed expression to extract PR number from environment name (e.g., "s/^pr-\{0,1\}//")'
+    required: false
+    default: 's/^pr-\{0,1\}//'
+  max-age-days:
+    description: 'Also cleanup environments older than N days regardless of PR state (0 to disable)'
+    required: false
+    default: '0'
+  dry-run:
+    description: 'List stale environments without deleting'
+    required: false
+    default: 'false'
+  delete-github-env:
+    description: 'Delete the GitHub environment'
+    required: false
+    default: 'true'
+  delete-github-deployments:
+    description: 'Delete GitHub deployments for each environment'
+    required: false
+    default: 'true'
+  delete-container:
+    description: 'Delete the container image from GHCR'
+    required: false
+    default: 'false'
+  container-org:
+    description: 'Organization owning the container (for image deletion)'
+    required: false
+    default: ''
+  container-name:
+    description: 'Container package name (for image deletion)'
+    required: false
+    default: ''
+  github-token:
+    description: 'GitHub token for API operations (defaults to automatic token)'
+    required: false
+    default: '${{ github.token }}'
+  github-admin-token:
+    description: 'GitHub token for environment deletion (needs repo admin permission)'
+    required: false
+    default: ''
+  api-base-url:
+    description: 'ZAD Operations Manager API base URL'
+    required: false
+    default: 'https://operations-manager.rig.prd1.gn2.quattro.rijksapps.nl/api'
+  max-retries:
+    description: 'Maximum number of retries for transient ZAD API errors (0 to disable)'
+    required: false
+    default: '3'
+  retry-delay:
+    description: 'Initial retry delay in seconds (doubles each retry)'
+    required: false
+    default: '2'
+
+outputs:
+  stale-count:
+    description: 'Number of stale environments found'
+    value: ${{ steps.find-stale.outputs.stale-count }}
+  cleaned-count:
+    description: 'Number of environments successfully cleaned'
+    value: ${{ steps.cleanup.outputs.cleaned-count || '0' }}
+  stale-environments:
+    description: 'JSON array of stale environment names'
+    value: ${{ steps.find-stale.outputs.stale-environments }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Find stale environments
+      id: find-stale
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        GITHUB_REPOSITORY: ${{ github.repository }}
+        PROJECT_ID: ${{ inputs.project-id }}
+        ENV_PATTERN: ${{ inputs.environment-pattern }}
+        PR_NUMBER_PATTERN: ${{ inputs.pr-number-pattern }}
+        MAX_AGE_DAYS: ${{ inputs.max-age-days }}
+      run: |
+        # Validate inputs (fail early before expensive scanning)
+        if ! echo "$PROJECT_ID" | grep -qE '^[a-zA-Z0-9._-]+$'; then
+          echo "Error: project-id contains invalid characters (allowed: a-z, A-Z, 0-9, ., _, -)"
+          exit 1
+        fi
+        if ! echo "$MAX_AGE_DAYS" | grep -qE '^[0-9]+$'; then
+          echo "Error: max-age-days must be a non-negative integer"
+          exit 1
+        fi
+
+        # Validate environment-pattern length and basic safety
+        if [ ${#ENV_PATTERN} -gt 200 ]; then
+          echo "Error: environment-pattern is too long (max 200 characters)"
+          exit 1
+        fi
+        if echo "$ENV_PATTERN" | grep -qE '[;&|`$]'; then
+          echo "Error: environment-pattern contains disallowed characters"
+          exit 1
+        fi
+
+        # Validate pr-number-pattern: must start with 's/' (a sed substitution)
+        if ! echo "$PR_NUMBER_PATTERN" | grep -qE '^s/'; then
+          echo "Error: pr-number-pattern must be a sed substitution expression (starting with 's/')"
+          exit 1
+        fi
+        if [ ${#PR_NUMBER_PATTERN} -gt 200 ]; then
+          echo "Error: pr-number-pattern is too long (max 200 characters)"
+          exit 1
+        fi
+        if echo "$PR_NUMBER_PATTERN" | grep -qE '[;&|`$]|/e'; then
+          echo "Error: pr-number-pattern contains disallowed characters or flags (;&|\`\$ and sed 'e' flag are not allowed)"
+          exit 1
+        fi
+
+        # Throttle GitHub API calls based on rate limit headers.
+        # Pauses only when remaining requests drop below threshold.
+        gh_api_throttled() {
+          local response
+          response=$(gh api "$@" --include 2>/dev/null) || { echo ""; return 1; }
+
+          # Extract rate limit headers
+          local remaining reset
+          remaining=$(echo "$response" | grep -i 'X-RateLimit-Remaining' | tr -d '\r' | awk '{print $2}')
+          reset=$(echo "$response" | grep -i 'X-RateLimit-Reset' | tr -d '\r' | awk '{print $2}')
+
+          # Separate headers from body (blank line separates them)
+          local body
+          body=$(echo "$response" | sed '1,/^\r\{0,1\}$/d')
+          echo "$body"
+
+          # Throttle if remaining requests are low
+          if [ -n "$remaining" ] && [ "$remaining" -lt 10 ] 2>/dev/null; then
+            local now wait_seconds
+            now=$(date +%s)
+            if [ -n "$reset" ] && [ "$reset" -gt "$now" ] 2>/dev/null; then
+              wait_seconds=$(( reset - now + 1 ))
+            else
+              wait_seconds=5
+            fi
+            echo "::warning::Rate limit low ($remaining remaining), waiting ${wait_seconds}s..." >&2
+            sleep "$wait_seconds"
+          fi
+        }
+
+        echo "Scanning GitHub environments matching pattern: $ENV_PATTERN"
+
+        # Fetch all environments (paginated)
+        ALL_ENVS=""
+        PAGE=1
+        while true; do
+          PAGE_RESULT=$(gh_api_throttled "repos/$GITHUB_REPOSITORY/environments?per_page=100&page=$PAGE" \
+            | jq -r '.environments[] | .name + "\t" + .updated_at' 2>/dev/null || echo "")
+          if [ -z "$PAGE_RESULT" ]; then
+            break
+          fi
+          ALL_ENVS="${ALL_ENVS}${PAGE_RESULT}"$'\n'
+          PAGE=$((PAGE + 1))
+          # Safety limit
+          if [ "$PAGE" -gt 50 ]; then
+            echo "::warning::Reached pagination limit (5000 environments)"
+            break
+          fi
+        done
+
+        # Filter environments matching the pattern
+        STALE_ENVS=""
+        STALE_COUNT=0
+        STALE_JSON="[]"
+
+        while IFS=$'\t' read -r ENV_NAME UPDATED_AT; do
+          [ -z "$ENV_NAME" ] && continue
+
+          # Check if environment matches the pattern
+          if ! echo "$ENV_NAME" | grep -qE "$ENV_PATTERN"; then
+            continue
+          fi
+
+          IS_STALE=false
+          REASON=""
+
+          # Extract PR number and check if PR is still open
+          PR_NUMBER=$(echo "$ENV_NAME" | sed "$PR_NUMBER_PATTERN")
+          if echo "$PR_NUMBER" | grep -qE '^[0-9]+$'; then
+            PR_STATE=$(gh_api_throttled "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" \
+              | jq -r '.state' 2>/dev/null || echo "unknown")
+            if [ "$PR_STATE" != "open" ]; then
+              IS_STALE=true
+              REASON="PR #$PR_NUMBER is $PR_STATE"
+            fi
+          else
+            echo "::warning::Could not extract PR number from environment '$ENV_NAME' (got '$PR_NUMBER')"
+          fi
+
+          # Check age if max-age-days is set
+          if [ "$MAX_AGE_DAYS" -gt 0 ] && [ -n "$UPDATED_AT" ] && [ "$IS_STALE" = "false" ]; then
+            # Parse ISO 8601 date; date -d works on Linux (GitHub Actions runners)
+            ENV_EPOCH=$(date -d "$UPDATED_AT" +%s 2>/dev/null || echo "")
+            if [ -z "$ENV_EPOCH" ]; then
+              echo "::warning::Could not parse date '$UPDATED_AT' for environment '$ENV_NAME', skipping age check"
+            else
+              NOW_EPOCH=$(date +%s)
+              AGE_DAYS=$(( (NOW_EPOCH - ENV_EPOCH) / 86400 ))
+              if [ "$AGE_DAYS" -ge "$MAX_AGE_DAYS" ]; then
+                IS_STALE=true
+                REASON="environment is ${AGE_DAYS} days old (max: $MAX_AGE_DAYS)"
+              fi
+            fi
+          fi
+
+          if [ "$IS_STALE" = "true" ]; then
+            echo "Stale: $ENV_NAME ($REASON)"
+            STALE_ENVS="${STALE_ENVS}${ENV_NAME}"$'\n'
+            STALE_COUNT=$((STALE_COUNT + 1))
+            STALE_JSON=$(echo "$STALE_JSON" | jq -c --arg env "$ENV_NAME" '. + [$env]')
+          fi
+        done <<< "$ALL_ENVS"
+
+        echo "Found $STALE_COUNT stale environment(s)"
+        echo "stale-count=$STALE_COUNT" >> "$GITHUB_OUTPUT"
+        # stale-environments is compact JSON on a single line (jq -c above)
+        echo "stale-environments=$STALE_JSON" >> "$GITHUB_OUTPUT"
+
+        # Write stale list to temp file for next step
+        echo "$STALE_ENVS" > "$RUNNER_TEMP/stale-envs.txt"
+
+    - name: Cleanup stale environments
+      id: cleanup
+      if: steps.find-stale.outputs.stale-count != '0'
+      shell: bash
+      env:
+        ZAD_API_KEY: ${{ inputs.api-key }}
+        PROJECT_ID: ${{ inputs.project-id }}
+        API_BASE_URL: ${{ inputs.api-base-url }}
+        DRY_RUN: ${{ inputs.dry-run }}
+        DELETE_GITHUB_ENV: ${{ inputs.delete-github-env }}
+        DELETE_GITHUB_DEPLOYMENTS: ${{ inputs.delete-github-deployments }}
+        DELETE_CONTAINER: ${{ inputs.delete-container }}
+        CONTAINER_ORG: ${{ inputs.container-org }}
+        CONTAINER_NAME: ${{ inputs.container-name }}
+        GH_TOKEN: ${{ inputs.github-token }}
+        GH_ADMIN_TOKEN: ${{ inputs.github-admin-token }}
+        GITHUB_REPOSITORY: ${{ github.repository }}
+        MAX_RETRIES: ${{ inputs.max-retries }}
+        RETRY_DELAY: ${{ inputs.retry-delay }}
+        PR_NUMBER_PATTERN: ${{ inputs.pr-number-pattern }}
+      run: |
+        # Validate inputs
+        if ! echo "$PROJECT_ID" | grep -qE '^[a-zA-Z0-9._-]+$'; then
+          echo "Error: project-id contains invalid characters"
+          exit 1
+        fi
+        if ! echo "$MAX_RETRIES" | grep -qE '^[0-9]+$'; then
+          echo "Error: max-retries must be a non-negative integer"
+          exit 1
+        fi
+        if ! echo "$RETRY_DELAY" | grep -qE '^[0-9]+$'; then
+          echo "Error: retry-delay must be a non-negative integer"
+          exit 1
+        fi
+        # Re-validate pr-number-pattern (defense-in-depth, also validated in find-stale step)
+        if ! echo "$PR_NUMBER_PATTERN" | grep -qE '^s/'; then
+          echo "Error: pr-number-pattern must be a sed substitution expression (starting with 's/')"
+          exit 1
+        fi
+        if echo "$PR_NUMBER_PATTERN" | grep -qE '[;&|`$]|/e'; then
+          echo "Error: pr-number-pattern contains disallowed characters"
+          exit 1
+        fi
+
+        # Retry helper: curl_with_retry URL [curl_args...]
+        # Uses MAX_RETRIES and RETRY_DELAY from environment.
+        # Sets FINAL_HTTP_CODE and FINAL_BODY after completion.
+        curl_with_retry() {
+          local url="$1"; shift
+          local attempt=0
+          local delay="$RETRY_DELAY"
+          while true; do
+            local response
+            response=$(curl -s -w "\n%{http_code}" --max-time 60 "$@" "$url")
+            FINAL_HTTP_CODE=$(echo "$response" | tail -n1)
+            FINAL_BODY=$(echo "$response" | sed '$d')
+
+            # Success
+            if [ "$FINAL_HTTP_CODE" -ge 200 ] && [ "$FINAL_HTTP_CODE" -lt 300 ]; then
+              return 0
+            fi
+
+            # Determine if retryable
+            local retryable=false
+            if [ "$FINAL_HTTP_CODE" -eq 000 ] || [ "$FINAL_HTTP_CODE" -eq 429 ]; then
+              retryable=true
+            elif [ "$FINAL_HTTP_CODE" -ge 500 ] && [ "$FINAL_HTTP_CODE" -le 504 ]; then
+              retryable=true
+            fi
+
+            if [ "$retryable" = "true" ] && [ "$attempt" -lt "$MAX_RETRIES" ]; then
+              attempt=$((attempt + 1))
+              echo "::warning::Transient error (HTTP $FINAL_HTTP_CODE), retrying in ${delay}s (attempt $attempt/$MAX_RETRIES)..."
+              sleep "$delay"
+              delay=$((delay * 2))
+              continue
+            fi
+
+            # Non-retryable or retries exhausted
+            return 1
+          done
+        }
+
+        CLEANED=0
+
+        if [ "$DRY_RUN" = "true" ]; then
+          echo "DRY RUN - no deletions will be performed"
+          echo "cleaned-count=0" >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+
+        while IFS= read -r ENV_NAME; do
+          [ -z "$ENV_NAME" ] && continue
+
+          if ! echo "$ENV_NAME" | grep -qE '^[a-zA-Z0-9._-]+$'; then
+            echo "::warning::Skipping environment with invalid name: $ENV_NAME"
+            continue
+          fi
+
+          echo "--- Cleaning up: $ENV_NAME ---"
+          ENV_SUCCESS=true
+
+          # 1. Delete ZAD deployment (with retry)
+          if curl_with_retry "$API_BASE_URL/projects/$PROJECT_ID/$ENV_NAME" \
+              -X DELETE \
+              -H "X-API-Key: $ZAD_API_KEY"; then
+            echo "ZAD deployment '$ENV_NAME' deleted"
+          elif [ "$FINAL_HTTP_CODE" -eq 404 ]; then
+            echo "ZAD deployment '$ENV_NAME' not found (already deleted)"
+            ENV_SUCCESS=false
+          else
+            echo "::warning::Failed to delete ZAD deployment '$ENV_NAME' (HTTP $FINAL_HTTP_CODE)"
+            ENV_SUCCESS=false
+          fi
+
+          # 2. Delete GitHub deployments
+          if [ "$DELETE_GITHUB_DEPLOYMENTS" = "true" ]; then
+            DEPLOYMENTS=$(gh api "repos/$GITHUB_REPOSITORY/deployments?environment=$ENV_NAME" \
+              --jq '.[].id' 2>/dev/null || echo "")
+            for DEPLOYMENT_ID in $DEPLOYMENTS; do
+              gh api "repos/$GITHUB_REPOSITORY/deployments/$DEPLOYMENT_ID/statuses" \
+                -X POST -f state=inactive 2>/dev/null || true
+              gh api "repos/$GITHUB_REPOSITORY/deployments/$DEPLOYMENT_ID" \
+                -X DELETE 2>/dev/null || true
+            done
+            if [ -n "$DEPLOYMENTS" ]; then
+              echo "GitHub deployments deleted for '$ENV_NAME'"
+            fi
+          fi
+
+          # 3. Delete GitHub environment (subshell to avoid leaking admin token on failure)
+          if [ "$DELETE_GITHUB_ENV" = "true" ] && [ -n "$GH_ADMIN_TOKEN" ]; then
+            ENCODED_ENV=$(echo "$ENV_NAME" | jq -sRr @uri)
+            if (export GH_TOKEN="$GH_ADMIN_TOKEN"; gh api "repos/$GITHUB_REPOSITORY/environments/$ENCODED_ENV" -X DELETE 2>/dev/null); then
+              echo "GitHub environment '$ENV_NAME' deleted"
+            else
+              echo "::warning::Failed to delete GitHub environment '$ENV_NAME'"
+            fi
+          fi
+
+          # 4. Delete container image
+          if [ "$DELETE_CONTAINER" = "true" ] && [ -n "$CONTAINER_ORG" ] && [ -n "$CONTAINER_NAME" ]; then
+            # Use environment name as container tag (common pattern: pr-123)
+            PR_NUM=$(echo "$ENV_NAME" | sed "$PR_NUMBER_PATTERN")
+            CONTAINER_TAG="pr-$PR_NUM"
+            VERSIONS=$(gh api "orgs/$CONTAINER_ORG/packages/container/$CONTAINER_NAME/versions" 2>/dev/null | \
+              jq -r --arg tag "$CONTAINER_TAG" '.[] | select(.metadata.container.tags | index($tag)) | .id' 2>/dev/null || echo "")
+            for VERSION_ID in $VERSIONS; do
+              if gh api "orgs/$CONTAINER_ORG/packages/container/$CONTAINER_NAME/versions/$VERSION_ID" -X DELETE 2>/dev/null; then
+                echo "Container version $VERSION_ID deleted for tag '$CONTAINER_TAG'"
+              else
+                echo "::warning::Failed to delete container version $VERSION_ID"
+              fi
+            done
+          fi
+
+          if [ "$ENV_SUCCESS" = "true" ]; then
+            CLEANED=$((CLEANED + 1))
+          fi
+        done < "$RUNNER_TEMP/stale-envs.txt"
+
+        echo "Successfully cleaned $CLEANED environment(s)"
+        echo "cleaned-count=$CLEANED" >> "$GITHUB_OUTPUT"

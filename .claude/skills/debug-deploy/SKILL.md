@@ -36,15 +36,18 @@ Both deploy and cleanup actions skip bot PRs by default (`skip-bot-prs: 'true'`)
 | `skipped` output is `true` | Bot PR detected via GitHub user type or known bot list | If intentional, no action needed. Otherwise set `skip-bot-prs: 'false'` |
 | Deployment skipped for a non-bot PR | Check if the PR author has user type `Bot` in GitHub | Verify user account type. Custom bots with `[bot]` suffix are also detected |
 
-### ZAD API errors (deploy/cleanup)
+### ZAD API errors (deploy/cleanup/scheduled-cleanup)
 
-| HTTP Code | Diagnosis | Fix |
-|-----------|-----------|-----|
-| `000` | Network problem — runner can't reach ZAD API | Check runner network, verify `api-base-url` is correct. Default: `https://operations-manager.rig.prd1.gn2.quattro.rijksapps.nl/api` |
-| `401` | API key invalid or expired | Regenerate `ZAD_API_KEY` in Operations Manager and update the repository secret |
-| `403` | API key lacks permission for this project | Verify the API key has access to the specified `project-id`. Request access via Operations Manager |
-| `404` | Project not found | Check `project-id` spelling. Verify project exists in ZAD Operations Manager |
-| `5xx` | ZAD API server error | Temporary issue — retry the workflow. If persistent, check ZAD Operations Manager status |
+All three actions retry transient ZAD API errors (000, 429, 500-504) with exponential backoff. Auth errors (401, 403) and 404 are NOT retried. GitHub API calls are also not retried.
+
+| HTTP Code | Diagnosis | Retried? | Fix |
+|-----------|-----------|----------|-----|
+| `000` | Network problem — runner can't reach ZAD API | Yes | Check runner network, verify `api-base-url` is correct. Default: `https://operations-manager.rig.prd1.gn2.quattro.rijksapps.nl/api` |
+| `401` | API key invalid or expired | No | Regenerate `ZAD_API_KEY` in Operations Manager and update the repository secret |
+| `403` | API key lacks permission for this project | No | Verify the API key has access to the specified `project-id`. Request access via Operations Manager |
+| `404` | Project not found (deploy) / already deleted (cleanup) | No | Check `project-id` spelling. Verify project exists in ZAD Operations Manager |
+| `429` | Rate limited | Yes | Automatically retried. Increase `retry-delay` if persistent |
+| `5xx` | ZAD API server error | Yes | Automatically retried. If persistent after retries, check ZAD Operations Manager status |
 
 ### Deployment readiness errors (wait-for-ready)
 
@@ -79,6 +82,23 @@ Both deploy and cleanup actions skip bot PRs by default (`skip-bot-prs: 'true'`)
 |---------|-----------|-----|
 | Comment not posted/deleted | Missing permission | Add `permissions: pull-requests: write` to the job |
 | Comment not found for deletion | Different header | Ensure `comment-header` matches between deploy and cleanup actions (default: `## 🚀 Preview Deployment`) |
+
+### Retry configuration (deploy/cleanup/scheduled-cleanup)
+
+| Symptom | Diagnosis | Fix |
+|---------|-----------|-----|
+| Retries exhausted but API was briefly down | Default 3 retries may not be enough | Increase `max-retries` (e.g., `5`) |
+| Backoff too aggressive | Default starts at 2s, doubles each time | Increase `retry-delay` for longer waits |
+| Want to disable retries | Some CI setups prefer fast failure | Set `max-retries: '0'` |
+
+### Scheduled-cleanup specific issues
+
+| Symptom | Diagnosis | Fix |
+|---------|-----------|-----|
+| All environments marked as stale | Date parsing may have failed (check warnings) | Verify `updated_at` field exists on environments |
+| PR number extraction fails | `pr-number-pattern` doesn't match environment naming | Check `environment-pattern` and `pr-number-pattern` match your naming convention |
+| GitHub API rate limit hit | Too many environments being checked | Action includes 0.5s delay between checks. For 1000+ environments, run less frequently |
+| Overlapping cleanup runs | No concurrency guard | Add `concurrency: { group: scheduled-cleanup, cancel-in-progress: false }` to workflow |
 
 ### Token confusion guide
 

@@ -21,7 +21,7 @@ Deep validation of action.yml files in this repo.
 /validate-action <action>
 ```
 
-Where `<action>` is `deploy` or `cleanup`. If not specified, validate both.
+Where `<action>` is `deploy`, `cleanup`, or `scheduled-cleanup`. If not specified, validate all.
 
 ## Validation checks
 

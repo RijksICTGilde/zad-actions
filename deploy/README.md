@@ -23,6 +23,8 @@ Deploys a container image to ZAD Operations Manager.
 | `wait-interval` | No | `10` | Seconds between readiness checks |
 | `qr-code` | No | `false` | Include QR code for mobile access (generated locally via qrencode) |
 | `skip-bot-prs` | No | `true` | Skip deployment for PRs created by bots (dependabot, renovate, pre-commit-ci, etc.) |
+| `max-retries` | No | `3` | Maximum number of retries for transient API errors (0 to disable) |
+| `retry-delay` | No | `2` | Initial retry delay in seconds (doubles each retry) |
 
 ## Outputs
 
@@ -217,10 +219,24 @@ Wait for deployment to be healthy using the built-in `wait-for-ready` feature:
     health-endpoint: /health
 ```
 
+## Retry Behavior
+
+Only the ZAD API call is retried on transient errors. Other operations (PR commenting, QR code generation) are not retried.
+
+| HTTP Code | Retries? | Reason |
+|-----------|----------|--------|
+| 000 | Yes | Network error / timeout |
+| 429 | Yes | Rate limit |
+| 500-504 | Yes | Server errors |
+| 401, 403 | No | Authentication / authorization |
+| 404 | No | Project not found |
+
+Backoff is exponential: 2s → 4s → 8s (default). Set `max-retries: '0'` to disable.
+
 ## How It Works
 
 1. Constructs a JSON payload with deployment configuration
-2. Calls the ZAD Operations Manager upsert-deployment API
+2. Calls the ZAD Operations Manager upsert-deployment API (with retry on transient errors)
 3. Returns the constructed URL as an output
 
 If `clone-from` is specified, the new deployment will inherit configuration from the specified existing deployment. Use `force-clone: true` to re-clone configuration even if the deployment already exists.

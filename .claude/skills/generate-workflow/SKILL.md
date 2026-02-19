@@ -35,7 +35,9 @@ Or with arguments: `/generate-workflow project-id=my-project component=web`
      - `clone-from` — clone config from existing deployment (e.g., `production`)
      - `production-deploy` — add production deploy job on push to main
 
-2. **Read current action inputs** from `deploy/action.yml` and `cleanup/action.yml` to ensure generated workflow uses correct input names and defaults.
+   - `scheduled-cleanup` — add a weekly scheduled cleanup job for stale PR environments
+
+2. **Read current action inputs** from `deploy/action.yml`, `cleanup/action.yml`, and `scheduled-cleanup/action.yml` to ensure generated workflow uses correct input names and defaults.
 
 3. **Generate the workflow file** with the following structure:
 
@@ -117,6 +119,29 @@ jobs:
           container-tag: pr-${{ github.event.number }}
           github-admin-token: ${{ secrets.GITHUB_ADMIN_TOKEN }}
 ```
+
+   If `scheduled-cleanup` is enabled, add a separate workflow or job:
+
+```yaml
+  scheduled-cleanup:
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    permissions:
+      deployments: write
+      packages: write
+      pull-requests: read
+    steps:
+      - uses: RijksICTGilde/zad-actions/scheduled-cleanup@v2
+        with:
+          api-key: ${{ secrets.ZAD_API_KEY }}
+          project-id: <project-id>
+          delete-container: true
+          container-org: ${{ github.repository_owner }}
+          container-name: ${{ github.event.repository.name }}
+          github-admin-token: ${{ secrets.GITHUB_ADMIN_TOKEN }}
+```
+
+   Add `concurrency: { group: scheduled-cleanup, cancel-in-progress: false }` when scheduled-cleanup is included.
 
 4. **Add inline YAML comments** explaining:
    - Why each `permissions:` block is needed

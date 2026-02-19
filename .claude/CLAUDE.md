@@ -2,12 +2,18 @@
 
 GitHub Actions for deploying to ZAD (Zelfservice voor Applicatie Deployment) at Rijks ICT Gilde.
 
+## Actions
+
+- `deploy/` — Deploy a container image to ZAD
+- `cleanup/` — Remove a ZAD deployment and GitHub resources
+- `scheduled-cleanup/` — Periodically find and clean up stale PR environments
+
 ## Tech Stack
 
 - **GitHub Actions**: Composite actions (`runs.using: composite`)
-- **Bash**: Scripts in action steps
-- **curl**: ZAD API calls
-- **gh CLI**: GitHub API interactions
+- **Bash**: Scripts in action steps (shared `curl_with_retry` pattern for ZAD API calls)
+- **curl**: ZAD API calls (with retry on transient errors)
+- **gh CLI**: GitHub API interactions (best-effort, no retry)
 
 ## Workflow
 

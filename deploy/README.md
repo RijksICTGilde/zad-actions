@@ -221,7 +221,7 @@ Wait for deployment to be healthy using the built-in `wait-for-ready` feature:
 
 ## Retry Behavior
 
-The ZAD API call automatically retries on transient errors:
+Only the ZAD API call is retried on transient errors. Other operations (PR commenting, QR code generation) are not retried.
 
 | HTTP Code | Retries? | Reason |
 |-----------|----------|--------|

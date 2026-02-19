@@ -190,7 +190,7 @@ Each step runs independently and won't fail the action if it fails (cleanup is b
 
 ### Retry Behavior
 
-The ZAD API delete call automatically retries on transient errors:
+Only the ZAD API delete call is retried on transient errors. GitHub API calls (deployments, environments, containers) are not retried — they use best-effort error handling.
 
 | HTTP Code | Retries? | Reason |
 |-----------|----------|--------|

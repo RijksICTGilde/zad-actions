@@ -42,7 +42,7 @@ inputs:
   github-token:
     description: 'GitHub token for PR commenting (defaults to automatic token)'
     required: false
-    default: ${{ github.token }}
+    default: '${{ github.token }}'
   comment-header:
     description: 'Custom header for the PR comment (default: "## 🚀 Preview Deployment")'
     required: false
@@ -96,7 +96,7 @@ runs:
       if: inputs.skip-bot-prs == 'true' && (github.event_name == 'pull_request' || github.event_name == 'pull_request_target')
       shell: bash
       env:
-        PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+        PR_AUTHOR: ${{ inputs.github-token && github.event.pull_request.user.login || '' }}
         PR_AUTHOR_TYPE: ${{ github.event.pull_request.user.type }}
       run: |
         KNOWN_BOTS=("dependabot[bot]" "renovate[bot]" "pre-commit-ci[bot]" "github-actions[bot]")
@@ -202,73 +202,81 @@ runs:
             }')
         fi
 
+        # Retry helper: curl_with_retry URL [curl_args...]
+        # Uses MAX_RETRIES and RETRY_DELAY from environment.
+        # Sets FINAL_HTTP_CODE and FINAL_BODY after completion.
+        curl_with_retry() {
+          local url="$1"; shift
+          local attempt=0
+          local delay="$RETRY_DELAY"
+          while true; do
+            local response
+            response=$(curl -s -w "\n%{http_code}" --max-time 60 "$@" "$url")
+            FINAL_HTTP_CODE=$(echo "$response" | tail -n1)
+            FINAL_BODY=$(echo "$response" | sed '$d')
+
+            # Success
+            if [ "$FINAL_HTTP_CODE" -ge 200 ] && [ "$FINAL_HTTP_CODE" -lt 300 ]; then
+              return 0
+            fi
+
+            # Determine if retryable
+            local retryable=false
+            if [ "$FINAL_HTTP_CODE" -eq 000 ] || [ "$FINAL_HTTP_CODE" -eq 429 ]; then
+              retryable=true
+            elif [ "$FINAL_HTTP_CODE" -ge 500 ] && [ "$FINAL_HTTP_CODE" -le 504 ]; then
+              retryable=true
+            fi
+
+            if [ "$retryable" = "true" ] && [ "$attempt" -lt "$MAX_RETRIES" ]; then
+              attempt=$((attempt + 1))
+              echo "::warning::Transient error (HTTP $FINAL_HTTP_CODE), retrying in ${delay}s (attempt $attempt/$MAX_RETRIES)..."
+              sleep "$delay"
+              delay=$((delay * 2))
+              continue
+            fi
+
+            # Non-retryable or retries exhausted
+            return 1
+          done
+        }
+
         # Make the API call with retry logic
-        ATTEMPT=0
-        DELAY="$RETRY_DELAY"
-        while true; do
-          RESPONSE=$(curl -s -w "\n%{http_code}" \
-            --max-time 60 \
+        if curl_with_retry "$API_BASE_URL/projects/$PROJECT_ID/:upsert-deployment" \
             -X POST \
             -H "X-API-Key: $ZAD_API_KEY" \
             -H "Content-Type: application/json" \
-            -d "$PAYLOAD" \
-            "$API_BASE_URL/projects/$PROJECT_ID/:upsert-deployment")
+            -d "$PAYLOAD"; then
+          echo "Deployment successful (HTTP $FINAL_HTTP_CODE)"
+          echo "$FINAL_BODY" | jq . 2>/dev/null || echo "$FINAL_BODY"
 
-          HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
-          BODY=$(echo "$RESPONSE" | sed '$d')
-
-          # Determine if this error is retryable
-          RETRYABLE=false
-          if [ "$HTTP_CODE" -eq 000 ] || [ "$HTTP_CODE" -eq 429 ]; then
-            RETRYABLE=true
-          elif [ "$HTTP_CODE" -ge 500 ] && [ "$HTTP_CODE" -le 504 ]; then
-            RETRYABLE=true
-          fi
-
-          # Success
-          if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 300 ]; then
-            echo "Deployment successful (HTTP $HTTP_CODE)"
-            echo "$BODY" | jq . 2>/dev/null || echo "$BODY"
-
-            # Construct the URL (standard ZAD URL pattern)
-            URL="https://${COMPONENT}-${DEPLOYMENT_NAME}-${PROJECT_ID}.rig.prd1.gn2.quattro.rijksapps.nl"
-            echo "url=$URL" >> "$GITHUB_OUTPUT"
-            echo "Deployed to: $URL"
-            break
-          fi
-
-          # Retryable error with retries remaining
-          if [ "$RETRYABLE" = "true" ] && [ "$ATTEMPT" -lt "$MAX_RETRIES" ]; then
-            ATTEMPT=$((ATTEMPT + 1))
-            echo "::warning::Transient error (HTTP $HTTP_CODE), retrying in ${DELAY}s (attempt $ATTEMPT/$MAX_RETRIES)..."
-            sleep "$DELAY"
-            DELAY=$((DELAY * 2))
-            continue
-          fi
-
-          # Non-retryable or retries exhausted: fail
-          if [ "$HTTP_CODE" -eq 000 ]; then
+          # Construct the URL (standard ZAD URL pattern)
+          URL="https://${COMPONENT}-${DEPLOYMENT_NAME}-${PROJECT_ID}.rig.prd1.gn2.quattro.rijksapps.nl"
+          echo "url=$URL" >> "$GITHUB_OUTPUT"
+          echo "Deployed to: $URL"
+        else
+          if [ "$FINAL_HTTP_CODE" -eq 000 ]; then
             echo "::error::Deployment failed: Unable to connect to ZAD API"
             echo "::error::This could be a network issue or the API may be unavailable"
             echo "::error::Please verify the API URL: $API_BASE_URL"
-          elif [ "$HTTP_CODE" -eq 401 ]; then
+          elif [ "$FINAL_HTTP_CODE" -eq 401 ]; then
             echo "::error::Deployment failed: Authentication failed (HTTP 401)"
             echo "::error::Please verify your ZAD_API_KEY secret is correct and not expired"
-          elif [ "$HTTP_CODE" -eq 403 ]; then
+          elif [ "$FINAL_HTTP_CODE" -eq 403 ]; then
             echo "::error::Deployment failed: Access denied (HTTP 403)"
             echo "::error::Your API key may not have permission for project '$PROJECT_ID'"
-          elif [ "$HTTP_CODE" -eq 404 ]; then
+          elif [ "$FINAL_HTTP_CODE" -eq 404 ]; then
             echo "::error::Deployment failed: Project not found (HTTP 404)"
             echo "::error::Please verify project-id '$PROJECT_ID' exists in ZAD"
-          elif [ "$HTTP_CODE" -ge 500 ]; then
-            echo "::error::Deployment failed: ZAD API server error (HTTP $HTTP_CODE) after $ATTEMPT retries"
-            echo "$BODY"
+          elif [ "$FINAL_HTTP_CODE" -ge 500 ]; then
+            echo "::error::Deployment failed: ZAD API server error (HTTP $FINAL_HTTP_CODE) after retries"
+            echo "$FINAL_BODY"
           else
-            echo "::error::Deployment failed (HTTP $HTTP_CODE)"
-            echo "$BODY"
+            echo "::error::Deployment failed (HTTP $FINAL_HTTP_CODE)"
+            echo "$FINAL_BODY"
           fi
           exit 1
-        done
+        fi
 
     - name: Wait for deployment to be ready
       if: steps.bot-check.outputs.skipped != 'true' && inputs.wait-for-ready == 'true'

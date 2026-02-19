@@ -53,7 +53,7 @@ inputs:
   github-token:
     description: 'GitHub token for API operations (defaults to automatic token)'
     required: false
-    default: ${{ github.token }}
+    default: '${{ github.token }}'
   github-admin-token:
     description: 'GitHub token for environment deletion (needs repo admin permission)'
     required: false
@@ -77,7 +77,7 @@ outputs:
     value: ${{ steps.find-stale.outputs.stale-count }}
   cleaned-count:
     description: 'Number of environments successfully cleaned'
-    value: ${{ steps.cleanup.outputs.cleaned-count }}
+    value: ${{ steps.cleanup.outputs.cleaned-count || '0' }}
   stale-environments:
     description: 'JSON array of stale environment names'
     value: ${{ steps.find-stale.outputs.stale-environments }}
@@ -98,6 +98,26 @@ runs:
         # Validate inputs
         if ! echo "$MAX_AGE_DAYS" | grep -qE '^[0-9]+$'; then
           echo "Error: max-age-days must be a non-negative integer"
+          exit 1
+        fi
+
+        # Validate environment-pattern length and basic safety
+        if [ ${#ENV_PATTERN} -gt 200 ]; then
+          echo "Error: environment-pattern is too long (max 200 characters)"
+          exit 1
+        fi
+        if echo "$ENV_PATTERN" | grep -qE '[;&|`$]'; then
+          echo "Error: environment-pattern contains disallowed characters"
+          exit 1
+        fi
+
+        # Validate pr-number-pattern: must start with 's/' (a sed substitution)
+        if ! echo "$PR_NUMBER_PATTERN" | grep -qE '^s/'; then
+          echo "Error: pr-number-pattern must be a sed substitution expression (starting with 's/')"
+          exit 1
+        fi
+        if [ ${#PR_NUMBER_PATTERN} -gt 200 ]; then
+          echo "Error: pr-number-pattern is too long (max 200 characters)"
           exit 1
         fi
 
@@ -151,12 +171,17 @@ runs:
 
           # Check age if max-age-days is set
           if [ "$MAX_AGE_DAYS" -gt 0 ] && [ -n "$UPDATED_AT" ] && [ "$IS_STALE" = "false" ]; then
-            ENV_EPOCH=$(date -d "$UPDATED_AT" +%s 2>/dev/null || date -jf "%Y-%m-%dT%H:%M:%SZ" "$UPDATED_AT" +%s 2>/dev/null || echo "0")
-            NOW_EPOCH=$(date +%s)
-            AGE_DAYS=$(( (NOW_EPOCH - ENV_EPOCH) / 86400 ))
-            if [ "$AGE_DAYS" -ge "$MAX_AGE_DAYS" ]; then
-              IS_STALE=true
-              REASON="environment is ${AGE_DAYS} days old (max: $MAX_AGE_DAYS)"
+            # Parse ISO 8601 date; date -d works on Linux (GitHub Actions runners)
+            ENV_EPOCH=$(date -d "$UPDATED_AT" +%s 2>/dev/null || echo "")
+            if [ -z "$ENV_EPOCH" ]; then
+              echo "::warning::Could not parse date '$UPDATED_AT' for environment '$ENV_NAME', skipping age check"
+            else
+              NOW_EPOCH=$(date +%s)
+              AGE_DAYS=$(( (NOW_EPOCH - ENV_EPOCH) / 86400 ))
+              if [ "$AGE_DAYS" -ge "$MAX_AGE_DAYS" ]; then
+                IS_STALE=true
+                REASON="environment is ${AGE_DAYS} days old (max: $MAX_AGE_DAYS)"
+              fi
             fi
           fi
 
@@ -164,12 +189,16 @@ runs:
             echo "Stale: $ENV_NAME ($REASON)"
             STALE_ENVS="${STALE_ENVS}${ENV_NAME}"$'\n'
             STALE_COUNT=$((STALE_COUNT + 1))
-            STALE_JSON=$(echo "$STALE_JSON" | jq --arg env "$ENV_NAME" '. + [$env]')
+            STALE_JSON=$(echo "$STALE_JSON" | jq -c --arg env "$ENV_NAME" '. + [$env]')
           fi
+
+          # Rate limit: small delay between GitHub API calls to avoid hitting limits
+          sleep 0.5
         done <<< "$ALL_ENVS"
 
         echo "Found $STALE_COUNT stale environment(s)"
         echo "stale-count=$STALE_COUNT" >> "$GITHUB_OUTPUT"
+        # stale-environments is compact JSON on a single line (jq -c above)
         echo "stale-environments=$STALE_JSON" >> "$GITHUB_OUTPUT"
 
         # Write stale list to temp file for next step
@@ -210,6 +239,45 @@ runs:
           exit 1
         fi
 
+        # Retry helper: curl_with_retry URL [curl_args...]
+        # Uses MAX_RETRIES and RETRY_DELAY from environment.
+        # Sets FINAL_HTTP_CODE and FINAL_BODY after completion.
+        curl_with_retry() {
+          local url="$1"; shift
+          local attempt=0
+          local delay="$RETRY_DELAY"
+          while true; do
+            local response
+            response=$(curl -s -w "\n%{http_code}" --max-time 60 "$@" "$url")
+            FINAL_HTTP_CODE=$(echo "$response" | tail -n1)
+            FINAL_BODY=$(echo "$response" | sed '$d')
+
+            # Success
+            if [ "$FINAL_HTTP_CODE" -ge 200 ] && [ "$FINAL_HTTP_CODE" -lt 300 ]; then
+              return 0
+            fi
+
+            # Determine if retryable
+            local retryable=false
+            if [ "$FINAL_HTTP_CODE" -eq 000 ] || [ "$FINAL_HTTP_CODE" -eq 429 ]; then
+              retryable=true
+            elif [ "$FINAL_HTTP_CODE" -ge 500 ] && [ "$FINAL_HTTP_CODE" -le 504 ]; then
+              retryable=true
+            fi
+
+            if [ "$retryable" = "true" ] && [ "$attempt" -lt "$MAX_RETRIES" ]; then
+              attempt=$((attempt + 1))
+              echo "::warning::Transient error (HTTP $FINAL_HTTP_CODE), retrying in ${delay}s (attempt $attempt/$MAX_RETRIES)..."
+              sleep "$delay"
+              delay=$((delay * 2))
+              continue
+            fi
+
+            # Non-retryable or retries exhausted
+            return 1
+          done
+        }
+
         CLEANED=0
 
         if [ "$DRY_RUN" = "true" ]; then
@@ -230,46 +298,16 @@ runs:
           ENV_SUCCESS=true
 
           # 1. Delete ZAD deployment (with retry)
-          ATTEMPT=0
-          DELAY="$RETRY_DELAY"
-          while true; do
-            RESPONSE=$(curl -s -w "\n%{http_code}" \
-              --max-time 60 \
+          if curl_with_retry "$API_BASE_URL/projects/$PROJECT_ID/$ENV_NAME" \
               -X DELETE \
-              -H "X-API-Key: $ZAD_API_KEY" \
-              "$API_BASE_URL/projects/$PROJECT_ID/$ENV_NAME")
-
-            HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
-            BODY=$(echo "$RESPONSE" | sed '$d')
-
-            RETRYABLE=false
-            if [ "$HTTP_CODE" -eq 000 ] || [ "$HTTP_CODE" -eq 429 ]; then
-              RETRYABLE=true
-            elif [ "$HTTP_CODE" -ge 500 ] && [ "$HTTP_CODE" -le 504 ]; then
-              RETRYABLE=true
-            fi
-
-            if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 300 ]; then
-              echo "ZAD deployment '$ENV_NAME' deleted"
-              break
-            fi
-
-            if [ "$RETRYABLE" = "true" ] && [ "$ATTEMPT" -lt "$MAX_RETRIES" ]; then
-              ATTEMPT=$((ATTEMPT + 1))
-              echo "::warning::Transient error (HTTP $HTTP_CODE), retrying in ${DELAY}s (attempt $ATTEMPT/$MAX_RETRIES)..."
-              sleep "$DELAY"
-              DELAY=$((DELAY * 2))
-              continue
-            fi
-
-            if [ "$HTTP_CODE" -eq 404 ]; then
-              echo "ZAD deployment '$ENV_NAME' not found (already deleted)"
-            else
-              echo "::warning::Failed to delete ZAD deployment '$ENV_NAME' (HTTP $HTTP_CODE)"
-              ENV_SUCCESS=false
-            fi
-            break
-          done
+              -H "X-API-Key: $ZAD_API_KEY"; then
+            echo "ZAD deployment '$ENV_NAME' deleted"
+          elif [ "$FINAL_HTTP_CODE" -eq 404 ]; then
+            echo "ZAD deployment '$ENV_NAME' not found (already deleted)"
+          else
+            echo "::warning::Failed to delete ZAD deployment '$ENV_NAME' (HTTP $FINAL_HTTP_CODE)"
+            ENV_SUCCESS=false
+          fi
 
           # 2. Delete GitHub deployments
           if [ "$DELETE_GITHUB_DEPLOYMENTS" = "true" ]; then
@@ -307,7 +345,7 @@ runs:
             VERSIONS=$(gh api "orgs/$CONTAINER_ORG/packages/container/$CONTAINER_NAME/versions" 2>/dev/null | \
               jq -r --arg tag "$CONTAINER_TAG" '.[] | select(.metadata.container.tags | index($tag)) | .id' 2>/dev/null || echo "")
             for VERSION_ID in $VERSIONS; do
-              if gh api "orgs/$CONTAINER_ORG/packages/container/$CONTAINER_NAME/versions/$VERSION_ID" -X DELETE 2>&1; then
+              if gh api "orgs/$CONTAINER_ORG/packages/container/$CONTAINER_NAME/versions/$VERSION_ID" -X DELETE 2>/dev/null; then
                 echo "Container version $VERSION_ID deleted for tag '$CONTAINER_TAG'"
               else
                 echo "::warning::Failed to delete container version $VERSION_ID"

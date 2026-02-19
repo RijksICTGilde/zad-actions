@@ -20,7 +20,7 @@ Automatically finds and cleans up ZAD deployments for closed or merged PRs. Inte
 | `github-token` | No | `github.token` | GitHub token for API operations |
 | `github-admin-token` | No | `''` | GitHub token for environment deletion (needs repo admin permission) |
 | `api-base-url` | No | `https://operations-manager.rig.prd1.gn2.quattro.rijksapps.nl/api` | ZAD Operations Manager API base URL |
-| `max-retries` | No | `3` | Maximum number of retries for transient API errors (0 to disable) |
+| `max-retries` | No | `3` | Maximum number of retries for transient ZAD API errors (0 to disable) |
 | `retry-delay` | No | `2` | Initial retry delay in seconds (doubles each retry) |
 
 ## Outputs
@@ -28,7 +28,7 @@ Automatically finds and cleans up ZAD deployments for closed or merged PRs. Inte
 | Name | Description |
 |------|-------------|
 | `stale-count` | Number of stale environments found |
-| `cleaned-count` | Number of environments successfully cleaned |
+| `cleaned-count` | Number of environments successfully cleaned (always `0` when skipped or no stale envs) |
 | `stale-environments` | JSON array of stale environment names |
 
 ## Example Usage
@@ -41,6 +41,11 @@ on:
   schedule:
     - cron: '0 2 * * 1'  # Weekly on Monday at 02:00
   workflow_dispatch:
+
+# Prevent concurrent cleanup runs
+concurrency:
+  group: scheduled-cleanup
+  cancel-in-progress: false
 
 jobs:
   cleanup:
@@ -109,6 +114,30 @@ If your environments use a different naming convention (e.g., `preview-123`):
    - Deletes GitHub deployments (marks inactive, then deletes)
    - Deletes the GitHub environment (if `github-admin-token` provided)
    - Deletes the container image (if `delete-container` enabled)
+
+## Retry Behavior
+
+Only the ZAD API delete call is retried on transient errors. GitHub API calls (deployments, environments, containers) are not retried — they use best-effort error handling.
+
+| HTTP Code | Retries? | Reason |
+|-----------|----------|--------|
+| 000 | Yes | Network error / timeout |
+| 429 | Yes | Rate limit |
+| 500-504 | Yes | Server errors |
+| 401, 403 | No | Authentication / authorization |
+| 404 | No | Already deleted |
+
+Backoff is exponential: 2s -> 4s -> 8s (default). Set `max-retries: '0'` to disable.
+
+## Concurrency
+
+Use a `concurrency` group in your workflow to prevent overlapping cleanup runs (e.g., if a manual trigger overlaps with a scheduled run):
+
+```yaml
+concurrency:
+  group: scheduled-cleanup
+  cancel-in-progress: false
+```
 
 ## Permissions
 

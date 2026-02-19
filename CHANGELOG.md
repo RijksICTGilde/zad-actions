@@ -8,18 +8,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## Unreleased
 
 ### Added
-- **deploy** and **cleanup** actions: Retry with exponential backoff for transient API errors
+- **deploy**, **cleanup**, and **scheduled-cleanup** actions: Retry with exponential backoff for transient ZAD API errors
   - New inputs: `max-retries` (default: `3`), `retry-delay` (default: `2`)
   - Retries on network errors (HTTP 000), rate limits (429), and server errors (500-504)
   - Does not retry on auth errors (401, 403) or not found (404)
   - Backoff: 2s → 4s → 8s (worst-case 14s extra)
+  - Retry logic extracted into shared `curl_with_retry` bash function
+  - Note: only ZAD API calls are retried; GitHub API calls use best-effort error handling
 - **scheduled-cleanup** action: Periodically find and clean up stale PR environments
   - Scans GitHub environments matching a configurable regex pattern
   - Checks PR state and marks closed/merged PRs as stale
   - Optional age-based cleanup via `max-age-days`
   - Dry-run mode for safe testing
   - Cleans up ZAD deployments, GitHub deployments/environments, and container images
-  - Includes retry logic for transient API errors
+  - Rate limiting (0.5s delay) between GitHub API calls to avoid rate limits
+  - Input validation for `environment-pattern` and `pr-number-pattern`
+  - `cleaned-count` output defaults to `0` when no cleanup is needed
+
+### Fixed
+- **scheduled-cleanup**: `stale-environments` output now uses compact JSON (single line) to prevent GITHUB_OUTPUT corruption
+- **scheduled-cleanup**: Date parsing failure no longer silently falls back to epoch 0 (which would mark all environments as stale); instead warns and skips the age check
+- **scheduled-cleanup**: Container deletion no longer leaks stderr to stdout via `2>&1`
+
+### Changed
+- **deploy**, **cleanup**: `github-token` default now consistently quoted as `'${{ github.token }}'`
 
 ## [2.1.0] - 2026-02-18
 

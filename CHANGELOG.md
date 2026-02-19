@@ -12,6 +12,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - The suffix is included in the `url` output, PR comment, and QR code
   - Handles leading/trailing slashes gracefully
 
+## [2.2.1] - 2026-02-19
+
+### Fixed
+- **scheduled-cleanup**: Allow `$` regex anchor in `environment-pattern` and `pr-number-pattern` inputs (was incorrectly blocked as a dangerous shell character)
+
 ## [2.2.0] - 2026-02-19
 
 ### Added
@@ -165,6 +170,7 @@ If you use the cleanup action with `update-pr-comment`, update your workflow:
 - Secure handling of API keys via environment variables
 - Dangerous character detection for container inputs
 
+[2.2.1]: https://github.com/RijksICTGilde/zad-actions/releases/tag/v2.2.1
 [2.2.0]: https://github.com/RijksICTGilde/zad-actions/releases/tag/v2.2.0
 [2.1.0]: https://github.com/RijksICTGilde/zad-actions/releases/tag/v2.1.0
 [2.0.1]: https://github.com/RijksICTGilde/zad-actions/releases/tag/v2.0.1

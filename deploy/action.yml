@@ -79,6 +79,10 @@ inputs:
     description: 'Initial retry delay in seconds (doubles each retry)'
     required: false
     default: '2'
+  path-suffix:
+    description: 'Path to append to the deployment URL (e.g. /docs/)'
+    required: false
+    default: ''
 
 outputs:
   url:
@@ -129,6 +133,7 @@ runs:
         API_BASE_URL: ${{ inputs.api-base-url }}
         MAX_RETRIES: ${{ inputs.max-retries }}
         RETRY_DELAY: ${{ inputs.retry-delay }}
+        PATH_SUFFIX: ${{ inputs.path-suffix }}
       run: |
         # Validate inputs FIRST (before logging)
         # Allow alphanumeric, hyphens, underscores, and dots
@@ -253,6 +258,9 @@ runs:
 
           # Construct the URL (standard ZAD URL pattern)
           URL="https://${COMPONENT}-${DEPLOYMENT_NAME}-${PROJECT_ID}.rig.prd1.gn2.quattro.rijksapps.nl"
+          if [ -n "$PATH_SUFFIX" ]; then
+            URL="${URL%/}/${PATH_SUFFIX#/}"
+          fi
           echo "url=$URL" >> "$GITHUB_OUTPUT"
           echo "Deployed to: $URL"
         else
@@ -310,7 +318,11 @@ runs:
 
     - name: Generate QR code
       id: qr
-      if: steps.bot-check.outputs.skipped != 'true' && inputs.qr-code == 'true' && inputs.comment-on-pr == 'true' && github.event_name == 'pull_request'
+      if: >-
+        steps.bot-check.outputs.skipped != 'true'
+        && inputs.qr-code == 'true'
+        && inputs.comment-on-pr == 'true'
+        && github.event_name == 'pull_request'
       shell: bash
       env:
         DEPLOYMENT_URL: ${{ steps.deploy.outputs.url }}

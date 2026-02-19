@@ -33,6 +33,7 @@ Or with arguments: `/generate-workflow project-id=my-project component=web`
      - `qr-code` — QR code in PR comment for mobile testing
      - `comment-on-pr` — post deployment URL as PR comment
      - `clone-from` — clone config from existing deployment (e.g., `production`)
+     - `path-suffix` — append a path to the deployment URL (e.g., `/docs/`)
      - `production-deploy` — add production deploy job on push to main
 
    - `scheduled-cleanup` — add a weekly scheduled cleanup job for stale PR environments

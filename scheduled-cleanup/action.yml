@@ -130,14 +130,44 @@ runs:
           exit 1
         fi
 
+        # Throttle GitHub API calls based on rate limit headers.
+        # Pauses only when remaining requests drop below threshold.
+        gh_api_throttled() {
+          local response
+          response=$(gh api "$@" --include 2>/dev/null) || { echo ""; return 1; }
+
+          # Extract rate limit headers
+          local remaining reset
+          remaining=$(echo "$response" | grep -i 'X-RateLimit-Remaining' | tr -d '\r' | awk '{print $2}')
+          reset=$(echo "$response" | grep -i 'X-RateLimit-Reset' | tr -d '\r' | awk '{print $2}')
+
+          # Separate headers from body (blank line separates them)
+          local body
+          body=$(echo "$response" | sed '1,/^\r\{0,1\}$/d')
+          echo "$body"
+
+          # Throttle if remaining requests are low
+          if [ -n "$remaining" ] && [ "$remaining" -lt 10 ] 2>/dev/null; then
+            local now wait_seconds
+            now=$(date +%s)
+            if [ -n "$reset" ] && [ "$reset" -gt "$now" ] 2>/dev/null; then
+              wait_seconds=$(( reset - now + 1 ))
+            else
+              wait_seconds=5
+            fi
+            echo "::warning::Rate limit low ($remaining remaining), waiting ${wait_seconds}s..."
+            sleep "$wait_seconds"
+          fi
+        }
+
         echo "Scanning GitHub environments matching pattern: $ENV_PATTERN"
 
         # Fetch all environments (paginated)
         ALL_ENVS=""
         PAGE=1
         while true; do
-          PAGE_RESULT=$(gh api "repos/$GITHUB_REPOSITORY/environments?per_page=100&page=$PAGE" \
-            --jq '.environments[] | .name + "\t" + .updated_at' 2>/dev/null || echo "")
+          PAGE_RESULT=$(gh_api_throttled "repos/$GITHUB_REPOSITORY/environments?per_page=100&page=$PAGE" \
+            | jq -r '.environments[] | .name + "\t" + .updated_at' 2>/dev/null || echo "")
           if [ -z "$PAGE_RESULT" ]; then
             break
           fi
@@ -169,8 +199,9 @@ runs:
           # Extract PR number and check if PR is still open
           PR_NUMBER=$(echo "$ENV_NAME" | sed "$PR_NUMBER_PATTERN")
           if echo "$PR_NUMBER" | grep -qE '^[0-9]+$'; then
-            PR_STATE=$(gh pr view "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --json state --jq '.state' 2>/dev/null || echo "UNKNOWN")
-            if [ "$PR_STATE" != "OPEN" ]; then
+            PR_STATE=$(gh_api_throttled "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" \
+              | jq -r '.state' 2>/dev/null || echo "unknown")
+            if [ "$PR_STATE" != "open" ]; then
               IS_STALE=true
               REASON="PR #$PR_NUMBER is $PR_STATE"
             fi
@@ -200,9 +231,6 @@ runs:
             STALE_COUNT=$((STALE_COUNT + 1))
             STALE_JSON=$(echo "$STALE_JSON" | jq -c --arg env "$ENV_NAME" '. + [$env]')
           fi
-
-          # Rate limit: small delay between GitHub API calls to avoid hitting limits
-          sleep 0.5
         done <<< "$ALL_ENVS"
 
         echo "Found $STALE_COUNT stale environment(s)"

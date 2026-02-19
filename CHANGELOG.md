@@ -21,7 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Optional age-based cleanup via `max-age-days`
   - Dry-run mode for safe testing
   - Cleans up ZAD deployments, GitHub deployments/environments, and container images
-  - Rate limiting (0.5s delay) between GitHub API calls to avoid rate limits
+  - Smart rate limiting: reads `X-RateLimit-Remaining` header and only pauses when approaching the limit (replaces blind 0.5s delay)
   - Input validation for `environment-pattern` and `pr-number-pattern` (including sed `e` flag injection protection)
   - `cleaned-count` output defaults to `0` when no cleanup is needed
   - Compact JSON output for `stale-environments` to prevent GITHUB_OUTPUT corruption

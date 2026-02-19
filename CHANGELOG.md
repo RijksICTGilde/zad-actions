@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## [2.2.0] - 2026-02-19
+
 ### Added
 - **deploy**, **cleanup**, and **scheduled-cleanup** actions: Retry with exponential backoff for transient ZAD API errors
   - New inputs: `max-retries` (default: `3`), `retry-delay` (default: `2`)
@@ -158,6 +160,7 @@ If you use the cleanup action with `update-pr-comment`, update your workflow:
 - Secure handling of API keys via environment variables
 - Dangerous character detection for container inputs
 
+[2.2.0]: https://github.com/RijksICTGilde/zad-actions/releases/tag/v2.2.0
 [2.1.0]: https://github.com/RijksICTGilde/zad-actions/releases/tag/v2.1.0
 [2.0.1]: https://github.com/RijksICTGilde/zad-actions/releases/tag/v2.0.1
 [2.0.0]: https://github.com/RijksICTGilde/zad-actions/releases/tag/v2.0.0

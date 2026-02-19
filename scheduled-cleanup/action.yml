@@ -247,6 +247,15 @@ runs:
           echo "Error: retry-delay must be a non-negative integer"
           exit 1
         fi
+        # Re-validate pr-number-pattern (defense-in-depth, also validated in find-stale step)
+        if ! echo "$PR_NUMBER_PATTERN" | grep -qE '^s/'; then
+          echo "Error: pr-number-pattern must be a sed substitution expression (starting with 's/')"
+          exit 1
+        fi
+        if echo "$PR_NUMBER_PATTERN" | grep -qE '[;&|`$]|/e'; then
+          echo "Error: pr-number-pattern contains disallowed characters"
+          exit 1
+        fi
 
         # Retry helper: curl_with_retry URL [curl_args...]
         # Uses MAX_RETRIES and RETRY_DELAY from environment.
@@ -313,6 +322,7 @@ runs:
             echo "ZAD deployment '$ENV_NAME' deleted"
           elif [ "$FINAL_HTTP_CODE" -eq 404 ]; then
             echo "ZAD deployment '$ENV_NAME' not found (already deleted)"
+            ENV_SUCCESS=false
           else
             echo "::warning::Failed to delete ZAD deployment '$ENV_NAME' (HTTP $FINAL_HTTP_CODE)"
             ENV_SUCCESS=false
@@ -333,17 +343,14 @@ runs:
             fi
           fi
 
-          # 3. Delete GitHub environment
+          # 3. Delete GitHub environment (subshell to avoid leaking admin token on failure)
           if [ "$DELETE_GITHUB_ENV" = "true" ] && [ -n "$GH_ADMIN_TOKEN" ]; then
             ENCODED_ENV=$(echo "$ENV_NAME" | jq -sRr @uri)
-            OLD_TOKEN="$GH_TOKEN"
-            export GH_TOKEN="$GH_ADMIN_TOKEN"
-            if gh api "repos/$GITHUB_REPOSITORY/environments/$ENCODED_ENV" -X DELETE 2>/dev/null; then
+            if (export GH_TOKEN="$GH_ADMIN_TOKEN"; gh api "repos/$GITHUB_REPOSITORY/environments/$ENCODED_ENV" -X DELETE 2>/dev/null); then
               echo "GitHub environment '$ENV_NAME' deleted"
             else
               echo "::warning::Failed to delete GitHub environment '$ENV_NAME'"
             fi
-            export GH_TOKEN="$OLD_TOKEN"
           fi
 
           # 4. Delete container image

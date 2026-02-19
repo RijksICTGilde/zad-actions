@@ -29,7 +29,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Container deletion uses `2>/dev/null` instead of `2>&1` to prevent stderr leaking into captured output
 
 ### Changed
+- **deploy**, **cleanup**: ZAD API calls now retry 3 times by default on transient errors (was 0).
+  This adds up to 14s extra delay on persistent failures. Set `max-retries: '0'` to restore previous fail-fast behavior.
 - **deploy**, **cleanup**: `github-token` default now consistently quoted as `'${{ github.token }}'`
+
+### Fixed
+- **scheduled-cleanup**: `cleaned-count` no longer counts 404 (already deleted) as successfully cleaned
+- **scheduled-cleanup**: Admin token no longer leaks into subsequent operations if environment deletion fails (uses subshell)
+- **scheduled-cleanup**: `pr-number-pattern` is now validated in both find-stale and cleanup steps (defense-in-depth)
 
 ## [2.1.0] - 2026-02-18
 

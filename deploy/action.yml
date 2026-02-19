@@ -242,6 +242,7 @@ runs:
         }
 
         # Make the API call with retry logic
+        # Safe to retry: upsert-deployment is idempotent (same payload = same result)
         if curl_with_retry "$API_BASE_URL/projects/$PROJECT_ID/:upsert-deployment" \
             -X POST \
             -H "X-API-Key: $ZAD_API_KEY" \

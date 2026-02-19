@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added
+- **deploy** and **cleanup** actions: Retry with exponential backoff for transient API errors
+  - New inputs: `max-retries` (default: `3`), `retry-delay` (default: `2`)
+  - Retries on network errors (HTTP 000), rate limits (429), and server errors (500-504)
+  - Does not retry on auth errors (401, 403) or not found (404)
+  - Backoff: 2s → 4s → 8s (worst-case 14s extra)
+- **scheduled-cleanup** action: Periodically find and clean up stale PR environments
+  - Scans GitHub environments matching a configurable regex pattern
+  - Checks PR state and marks closed/merged PRs as stale
+  - Optional age-based cleanup via `max-age-days`
+  - Dry-run mode for safe testing
+  - Cleans up ZAD deployments, GitHub deployments/environments, and container images
+  - Includes retry logic for transient API errors
+
 ## [2.1.0] - 2026-02-18
 
 ### Added

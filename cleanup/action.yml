@@ -65,6 +65,14 @@ inputs:
     description: 'Skip cleanup for PRs created by bots (dependabot, renovate, pre-commit-ci, etc.)'
     required: false
     default: 'true'
+  max-retries:
+    description: 'Maximum number of retries for transient API errors (0 to disable)'
+    required: false
+    default: '3'
+  retry-delay:
+    description: 'Initial retry delay in seconds (doubles each retry)'
+    required: false
+    default: '2'
 
 outputs:
   zad-deleted:
@@ -121,6 +129,8 @@ runs:
         PROJECT_ID: ${{ inputs.project-id }}
         DEPLOYMENT_NAME: ${{ inputs.deployment-name }}
         API_BASE_URL: ${{ inputs.api-base-url }}
+        MAX_RETRIES: ${{ inputs.max-retries }}
+        RETRY_DELAY: ${{ inputs.retry-delay }}
       run: |
         # Validate inputs FIRST (before logging)
         # Allow alphanumeric, hyphens, underscores, and dots
@@ -132,40 +142,73 @@ runs:
           echo "Error: deployment-name contains invalid characters (allowed: a-z, A-Z, 0-9, ., _, -)"
           exit 1
         fi
+        if ! echo "$MAX_RETRIES" | grep -qE '^[0-9]+$'; then
+          echo "Error: max-retries must be a non-negative integer"
+          exit 1
+        fi
+        if ! echo "$RETRY_DELAY" | grep -qE '^[0-9]+$'; then
+          echo "Error: retry-delay must be a non-negative integer"
+          exit 1
+        fi
 
         # Now safe to log
         echo "Deleting ZAD deployment: $DEPLOYMENT_NAME from project: $PROJECT_ID"
 
-        RESPONSE=$(curl -s -w "\n%{http_code}" \
-          --max-time 60 \
-          -X DELETE \
-          -H "X-API-Key: $ZAD_API_KEY" \
-          "$API_BASE_URL/projects/$PROJECT_ID/$DEPLOYMENT_NAME")
+        ATTEMPT=0
+        DELAY="$RETRY_DELAY"
+        while true; do
+          RESPONSE=$(curl -s -w "\n%{http_code}" \
+            --max-time 60 \
+            -X DELETE \
+            -H "X-API-Key: $ZAD_API_KEY" \
+            "$API_BASE_URL/projects/$PROJECT_ID/$DEPLOYMENT_NAME")
 
-        HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
-        BODY=$(echo "$RESPONSE" | sed '$d')
+          HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
+          BODY=$(echo "$RESPONSE" | sed '$d')
 
-        if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 300 ]; then
-          echo "ZAD deployment deleted successfully (HTTP $HTTP_CODE)"
-          echo "deleted=true" >> "$GITHUB_OUTPUT"
-        elif [ "$HTTP_CODE" -eq 404 ]; then
-          echo "ZAD deployment not found (already deleted?)"
-          echo "deleted=false" >> "$GITHUB_OUTPUT"
-        elif [ "$HTTP_CODE" -eq 000 ]; then
-          echo "::warning::Unable to connect to ZAD API - network issue or API unavailable"
-          echo "deleted=false" >> "$GITHUB_OUTPUT"
-        elif [ "$HTTP_CODE" -eq 401 ]; then
-          echo "::warning::Authentication failed (HTTP 401) - verify ZAD_API_KEY is correct"
-          echo "deleted=false" >> "$GITHUB_OUTPUT"
-        elif [ "$HTTP_CODE" -eq 403 ]; then
-          echo "::warning::Access denied (HTTP 403) - API key may lack permission for project '$PROJECT_ID'"
-          echo "deleted=false" >> "$GITHUB_OUTPUT"
-        else
-          echo "::warning::Failed to delete ZAD deployment (HTTP $HTTP_CODE)"
-          echo "$BODY"
-          echo "deleted=false" >> "$GITHUB_OUTPUT"
-          # Don't fail - continue with other cleanup tasks
-        fi
+          # Determine if this error is retryable
+          RETRYABLE=false
+          if [ "$HTTP_CODE" -eq 000 ] || [ "$HTTP_CODE" -eq 429 ]; then
+            RETRYABLE=true
+          elif [ "$HTTP_CODE" -ge 500 ] && [ "$HTTP_CODE" -le 504 ]; then
+            RETRYABLE=true
+          fi
+
+          # Success
+          if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 300 ]; then
+            echo "ZAD deployment deleted successfully (HTTP $HTTP_CODE)"
+            echo "deleted=true" >> "$GITHUB_OUTPUT"
+            break
+          fi
+
+          # Non-retryable errors: exit immediately
+          if [ "$RETRYABLE" = "false" ] || [ "$ATTEMPT" -ge "$MAX_RETRIES" ]; then
+            if [ "$HTTP_CODE" -eq 404 ]; then
+              echo "ZAD deployment not found (already deleted?)"
+              echo "deleted=false" >> "$GITHUB_OUTPUT"
+            elif [ "$HTTP_CODE" -eq 000 ]; then
+              echo "::warning::Unable to connect to ZAD API - network issue or API unavailable"
+              echo "deleted=false" >> "$GITHUB_OUTPUT"
+            elif [ "$HTTP_CODE" -eq 401 ]; then
+              echo "::warning::Authentication failed (HTTP 401) - verify ZAD_API_KEY is correct"
+              echo "deleted=false" >> "$GITHUB_OUTPUT"
+            elif [ "$HTTP_CODE" -eq 403 ]; then
+              echo "::warning::Access denied (HTTP 403) - API key may lack permission for project '$PROJECT_ID'"
+              echo "deleted=false" >> "$GITHUB_OUTPUT"
+            else
+              echo "::warning::Failed to delete ZAD deployment (HTTP $HTTP_CODE)"
+              echo "$BODY"
+              echo "deleted=false" >> "$GITHUB_OUTPUT"
+            fi
+            break
+          fi
+
+          # Retry
+          ATTEMPT=$((ATTEMPT + 1))
+          echo "::warning::Transient error (HTTP $HTTP_CODE), retrying in ${DELAY}s (attempt $ATTEMPT/$MAX_RETRIES)..."
+          sleep "$DELAY"
+          DELAY=$((DELAY * 2))
+        done
 
     - name: Delete GitHub Deployments
       id: delete-github-deployments

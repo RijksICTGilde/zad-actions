@@ -13,6 +13,7 @@ Reusable GitHub Actions for deploying to [ZAD](https://github.com/RijksICTGilde/
 |--------|-------------|
 | [deploy](./deploy) | Deploy a container image to ZAD |
 | [cleanup](./cleanup) | Remove a ZAD deployment and optionally clean up GitHub resources |
+| [scheduled-cleanup](./scheduled-cleanup) | Periodically find and clean up stale PR environments |
 
 ## Quick Start
 

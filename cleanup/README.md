@@ -21,6 +21,8 @@ Removes a ZAD deployment and optionally cleans up associated GitHub resources (e
 | `delete-pr-comment` | No | `true` | Delete the deploy PR comment |
 | `comment-header` | No | `## 🚀 Preview Deployment` | Header of the deploy comment to find and delete |
 | `skip-bot-prs` | No | `true` | Skip cleanup for PRs created by bots (dependabot, renovate, pre-commit-ci, etc.) |
+| `max-retries` | No | `3` | Maximum number of retries for transient API errors (0 to disable) |
+| `retry-delay` | No | `2` | Initial retry delay in seconds (doubles each retry) |
 
 ## Outputs
 
@@ -132,44 +134,18 @@ permissions:
 
 ### Scheduled Stale Environment Cleanup
 
-Automatically clean up old PR preview environments:
+For automated periodic cleanup of stale PR environments, use the dedicated [scheduled-cleanup](../scheduled-cleanup) action instead of scripting it manually. It handles environment discovery, PR state checking, and cleanup with retry logic built in.
 
 ```yaml
-name: Cleanup Stale Environments
-
-on:
-  schedule:
-    - cron: '0 2 * * *'  # Daily at 2 AM
-  workflow_dispatch:
-
-jobs:
-  cleanup-stale:
-    runs-on: ubuntu-latest
-    permissions:
-      deployments: write
-      packages: write
-    steps:
-      - name: Get stale PR environments
-        id: stale
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          # Find PR environments older than 7 days
-          gh api repos/${{ github.repository }}/environments \
-            --jq '.environments[] | select(.name | startswith("pr")) | .name' > envs.txt
-          echo "Found environments:"
-          cat envs.txt
-
-      - name: Cleanup each stale environment
-        env:
-          ZAD_API_KEY: ${{ secrets.ZAD_API_KEY }}
-        run: |
-          while read -r env; do
-            echo "Cleaning up: $env"
-            # Extract PR number from environment name (e.g., pr123 -> 123)
-            pr_num="${env#pr}"
-            # Add your cleanup logic here
-          done < envs.txt
+- uses: RijksICTGilde/zad-actions/scheduled-cleanup@v2
+  with:
+    api-key: ${{ secrets.ZAD_API_KEY }}
+    project-id: my-project
+    delete-github-env: true
+    delete-container: true
+    container-org: my-org
+    container-name: my-app
+    github-admin-token: ${{ secrets.GITHUB_ADMIN_TOKEN }}
 ```
 
 ### Conditional Cleanup Based on Outputs
@@ -211,6 +187,20 @@ Check cleanup results and take action:
 5. **Delete PR Comment** (optional): Removes the deploy comment from the PR
 
 Each step runs independently and won't fail the action if it fails (cleanup is best-effort). Check the outputs to see what was actually deleted.
+
+### Retry Behavior
+
+The ZAD API delete call automatically retries on transient errors:
+
+| HTTP Code | Retries? | Reason |
+|-----------|----------|--------|
+| 000 | Yes | Network error / timeout |
+| 429 | Yes | Rate limit |
+| 500-504 | Yes | Server errors |
+| 401, 403 | No | Authentication / authorization |
+| 404 | No | Already deleted |
+
+Backoff is exponential: 2s → 4s → 8s (default). Set `max-retries: '0'` to disable.
 
 ## Setting Up GITHUB_ADMIN_TOKEN
 

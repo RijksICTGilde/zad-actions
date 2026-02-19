@@ -71,6 +71,14 @@ inputs:
     description: 'Skip deployment for PRs created by bots (dependabot, renovate, pre-commit-ci, etc.)'
     required: false
     default: 'true'
+  max-retries:
+    description: 'Maximum number of retries for transient API errors (0 to disable)'
+    required: false
+    default: '3'
+  retry-delay:
+    description: 'Initial retry delay in seconds (doubles each retry)'
+    required: false
+    default: '2'
 
 outputs:
   url:
@@ -119,6 +127,8 @@ runs:
         CLONE_FROM: ${{ inputs.clone-from }}
         FORCE_CLONE: ${{ inputs.force-clone }}
         API_BASE_URL: ${{ inputs.api-base-url }}
+        MAX_RETRIES: ${{ inputs.max-retries }}
+        RETRY_DELAY: ${{ inputs.retry-delay }}
       run: |
         # Validate inputs FIRST (before logging)
         # Allow alphanumeric, hyphens, underscores, and dots
@@ -136,6 +146,14 @@ runs:
         fi
         if [ -n "$CLONE_FROM" ] && ! echo "$CLONE_FROM" | grep -qE '^[a-zA-Z0-9._-]+$'; then
           echo "Error: clone-from contains invalid characters (allowed: a-z, A-Z, 0-9, ., _, -)"
+          exit 1
+        fi
+        if ! echo "$MAX_RETRIES" | grep -qE '^[0-9]+$'; then
+          echo "Error: max-retries must be a non-negative integer"
+          exit 1
+        fi
+        if ! echo "$RETRY_DELAY" | grep -qE '^[0-9]+$'; then
+          echo "Error: retry-delay must be a non-negative integer"
           exit 1
         fi
 
@@ -184,53 +202,73 @@ runs:
             }')
         fi
 
-        # Make the API call (60s timeout)
-        RESPONSE=$(curl -s -w "\n%{http_code}" \
-          --max-time 60 \
-          -X POST \
-          -H "X-API-Key: $ZAD_API_KEY" \
-          -H "Content-Type: application/json" \
-          -d "$PAYLOAD" \
-          "$API_BASE_URL/projects/$PROJECT_ID/:upsert-deployment")
+        # Make the API call with retry logic
+        ATTEMPT=0
+        DELAY="$RETRY_DELAY"
+        while true; do
+          RESPONSE=$(curl -s -w "\n%{http_code}" \
+            --max-time 60 \
+            -X POST \
+            -H "X-API-Key: $ZAD_API_KEY" \
+            -H "Content-Type: application/json" \
+            -d "$PAYLOAD" \
+            "$API_BASE_URL/projects/$PROJECT_ID/:upsert-deployment")
 
-        HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
-        BODY=$(echo "$RESPONSE" | sed '$d')
+          HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
+          BODY=$(echo "$RESPONSE" | sed '$d')
 
-        if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 300 ]; then
-          echo "Deployment successful (HTTP $HTTP_CODE)"
-          echo "$BODY" | jq . 2>/dev/null || echo "$BODY"
+          # Determine if this error is retryable
+          RETRYABLE=false
+          if [ "$HTTP_CODE" -eq 000 ] || [ "$HTTP_CODE" -eq 429 ]; then
+            RETRYABLE=true
+          elif [ "$HTTP_CODE" -ge 500 ] && [ "$HTTP_CODE" -le 504 ]; then
+            RETRYABLE=true
+          fi
 
-          # Construct the URL (standard ZAD URL pattern)
-          URL="https://${COMPONENT}-${DEPLOYMENT_NAME}-${PROJECT_ID}.rig.prd1.gn2.quattro.rijksapps.nl"
-          echo "url=$URL" >> "$GITHUB_OUTPUT"
-          echo "Deployed to: $URL"
-        elif [ "$HTTP_CODE" -eq 000 ]; then
-          echo "::error::Deployment failed: Unable to connect to ZAD API"
-          echo "::error::This could be a network issue or the API may be unavailable"
-          echo "::error::Please verify the API URL: $API_BASE_URL"
+          # Success
+          if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 300 ]; then
+            echo "Deployment successful (HTTP $HTTP_CODE)"
+            echo "$BODY" | jq . 2>/dev/null || echo "$BODY"
+
+            # Construct the URL (standard ZAD URL pattern)
+            URL="https://${COMPONENT}-${DEPLOYMENT_NAME}-${PROJECT_ID}.rig.prd1.gn2.quattro.rijksapps.nl"
+            echo "url=$URL" >> "$GITHUB_OUTPUT"
+            echo "Deployed to: $URL"
+            break
+          fi
+
+          # Retryable error with retries remaining
+          if [ "$RETRYABLE" = "true" ] && [ "$ATTEMPT" -lt "$MAX_RETRIES" ]; then
+            ATTEMPT=$((ATTEMPT + 1))
+            echo "::warning::Transient error (HTTP $HTTP_CODE), retrying in ${DELAY}s (attempt $ATTEMPT/$MAX_RETRIES)..."
+            sleep "$DELAY"
+            DELAY=$((DELAY * 2))
+            continue
+          fi
+
+          # Non-retryable or retries exhausted: fail
+          if [ "$HTTP_CODE" -eq 000 ]; then
+            echo "::error::Deployment failed: Unable to connect to ZAD API"
+            echo "::error::This could be a network issue or the API may be unavailable"
+            echo "::error::Please verify the API URL: $API_BASE_URL"
+          elif [ "$HTTP_CODE" -eq 401 ]; then
+            echo "::error::Deployment failed: Authentication failed (HTTP 401)"
+            echo "::error::Please verify your ZAD_API_KEY secret is correct and not expired"
+          elif [ "$HTTP_CODE" -eq 403 ]; then
+            echo "::error::Deployment failed: Access denied (HTTP 403)"
+            echo "::error::Your API key may not have permission for project '$PROJECT_ID'"
+          elif [ "$HTTP_CODE" -eq 404 ]; then
+            echo "::error::Deployment failed: Project not found (HTTP 404)"
+            echo "::error::Please verify project-id '$PROJECT_ID' exists in ZAD"
+          elif [ "$HTTP_CODE" -ge 500 ]; then
+            echo "::error::Deployment failed: ZAD API server error (HTTP $HTTP_CODE) after $ATTEMPT retries"
+            echo "$BODY"
+          else
+            echo "::error::Deployment failed (HTTP $HTTP_CODE)"
+            echo "$BODY"
+          fi
           exit 1
-        elif [ "$HTTP_CODE" -eq 401 ]; then
-          echo "::error::Deployment failed: Authentication failed (HTTP 401)"
-          echo "::error::Please verify your ZAD_API_KEY secret is correct and not expired"
-          exit 1
-        elif [ "$HTTP_CODE" -eq 403 ]; then
-          echo "::error::Deployment failed: Access denied (HTTP 403)"
-          echo "::error::Your API key may not have permission for project '$PROJECT_ID'"
-          exit 1
-        elif [ "$HTTP_CODE" -eq 404 ]; then
-          echo "::error::Deployment failed: Project not found (HTTP 404)"
-          echo "::error::Please verify project-id '$PROJECT_ID' exists in ZAD"
-          exit 1
-        elif [ "$HTTP_CODE" -ge 500 ]; then
-          echo "::error::Deployment failed: ZAD API server error (HTTP $HTTP_CODE)"
-          echo "::error::This is likely a temporary issue. Please try again later"
-          echo "$BODY"
-          exit 1
-        else
-          echo "::error::Deployment failed (HTTP $HTTP_CODE)"
-          echo "$BODY"
-          exit 1
-        fi
+        done
 
     - name: Wait for deployment to be ready
       if: steps.bot-check.outputs.skipped != 'true' && inputs.wait-for-ready == 'true'

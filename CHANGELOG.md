@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Fixed
+- **deploy** action: Use URL from API response instead of hardcoded construction
+  - Projects with `subdomain` configuration (e.g. deployment-name mode) now get the correct URL
+  - Falls back to constructed URL with a warning if API response doesn't include URLs
+
 ## [2.3.0] - 2026-02-19
 
 ### Added

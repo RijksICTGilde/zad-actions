@@ -256,8 +256,14 @@ runs:
           echo "Deployment successful (HTTP $FINAL_HTTP_CODE)"
           echo "$FINAL_BODY" | jq . 2>/dev/null || echo "$FINAL_BODY"
 
-          # Construct the URL (standard ZAD URL pattern)
-          URL="https://${COMPONENT}-${DEPLOYMENT_NAME}-${PROJECT_ID}.rig.prd1.gn2.quattro.rijksapps.nl"
+          # Extract URL from API response (respects project's domain mode)
+          URL=$(echo "$FINAL_BODY" | jq -r ".urls.\"${DEPLOYMENT_NAME}\".urls.\"${COMPONENT}\"" 2>/dev/null)
+
+          # Fallback to constructed URL if API response doesn't contain it
+          if [ -z "$URL" ] || [ "$URL" = "null" ]; then
+            URL="https://${COMPONENT}-${DEPLOYMENT_NAME}-${PROJECT_ID}.rig.prd1.gn2.quattro.rijksapps.nl"
+            echo "::warning::Could not extract URL from API response, using constructed URL"
+          fi
           if [ -n "$PATH_SUFFIX" ]; then
             URL="${URL%/}/${PATH_SUFFIX#/}"
           fi

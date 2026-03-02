@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added
+- **deploy** action: Per-component PR comments
+  - Each component now gets its own PR comment (e.g. `## 🚀 Preview Deployment — web`)
+  - No more overwriting: deploying multiple components via matrix strategy creates separate comments
+  - Re-deploying a component updates only its own comment
+  - Cleanup action still removes all component comments (matches on shared header prefix)
+
 ### Fixed
 - **deploy** action: Use URL from API response instead of hardcoded construction
   - Projects with `subdomain` configuration (e.g. deployment-name mode) now get the correct URL

@@ -360,9 +360,14 @@ runs:
         PR_NUMBER: ${{ github.event.pull_request.number }}
         GITHUB_REPOSITORY: ${{ github.repository }}
         QR_HTML: ${{ steps.qr.outputs.html }}
+        COMPONENT: ${{ inputs.component }}
       run: |
+        # Each component gets its own comment, identified by component-specific header.
+        # Cleanup action still matches all via startswith(COMMENT_HEADER).
+        COMPONENT_HEADER="${COMMENT_HEADER} — ${COMPONENT}"
+
         # Build the comment body
-        COMMENT_BODY="${COMMENT_HEADER}"$'\n\n'
+        COMMENT_BODY="${COMPONENT_HEADER}"$'\n\n'
         COMMENT_BODY+="Your changes have been deployed to a preview environment:"$'\n\n'
         COMMENT_BODY+="**URL:** ${DEPLOYMENT_URL}"$'\n\n'
         if [ -n "$QR_HTML" ]; then
@@ -370,22 +375,20 @@ runs:
         fi
         COMMENT_BODY+="This deployment will be automatically cleaned up when the PR is closed."
 
-        # Check for existing comment from this action (identified by header)
+        # Check for existing comment for this component
         EXISTING_COMMENT_ID=$(gh api "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" \
-          --jq ".[] | select(.body | startswith(\"${COMMENT_HEADER}\")) | .id" \
+          --jq ".[] | select(.body | startswith(\"${COMPONENT_HEADER}\")) | .id" \
           2>/dev/null | head -n1 || echo "")
 
         if [ -n "$EXISTING_COMMENT_ID" ]; then
-          # Update existing comment
-          echo "Updating existing PR comment (ID: $EXISTING_COMMENT_ID)"
+          echo "Updating existing PR comment for ${COMPONENT} (ID: $EXISTING_COMMENT_ID)"
           gh api "repos/${GITHUB_REPOSITORY}/issues/comments/${EXISTING_COMMENT_ID}" \
             -X PATCH \
             -f body="$COMMENT_BODY" \
             --silent
           echo "PR comment updated"
         else
-          # Create new comment
-          echo "Creating new PR comment"
+          echo "Creating new PR comment for ${COMPONENT}"
           gh api "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" \
             -X POST \
             -f body="$COMMENT_BODY" \

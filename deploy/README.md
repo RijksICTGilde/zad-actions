@@ -89,11 +89,21 @@ deploy-preview:
 
 The action will create a comment like this on the PR:
 
-> ## 🚀 Preview Deployment
+> ## 🚀 Preview Deployment — web
 >
 > Your changes have been deployed to a preview environment:
 >
 > **URL:** https://web-pr85-my-project.your-domain.example.com
+>
+> This deployment will be automatically cleaned up when the PR is closed.
+
+When deploying multiple components (e.g. via matrix strategy), each component gets its own comment:
+
+> ## 🚀 Preview Deployment — api
+>
+> Your changes have been deployed to a preview environment:
+>
+> **URL:** https://api-pr85-my-project.your-domain.example.com
 >
 > This deployment will be automatically cleaned up when the PR is closed.
 
@@ -106,7 +116,7 @@ qr-code: true
 
 The QR code is generated locally using `qrencode` (no external dependencies), and appears in a collapsible section in the PR comment.
 
-On subsequent deployments to the same PR, the existing comment is updated instead of creating a new one.
+On subsequent deployments to the same PR, each component's comment is updated individually. The cleanup action removes all component comments when the PR is closed.
 
 ### Use with GitHub Environment
 

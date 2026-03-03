@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## [2.4.0] - 2026-03-03
+
 ### Added
 - **deploy** action: Per-component PR comments
   - Each component now gets its own PR comment (e.g. `## 🚀 Preview Deployment — web`)
@@ -184,6 +186,7 @@ If you use the cleanup action with `update-pr-comment`, update your workflow:
 - Secure handling of API keys via environment variables
 - Dangerous character detection for container inputs
 
+[2.4.0]: https://github.com/RijksICTGilde/zad-actions/releases/tag/v2.4.0
 [2.3.0]: https://github.com/RijksICTGilde/zad-actions/releases/tag/v2.3.0
 [2.2.1]: https://github.com/RijksICTGilde/zad-actions/releases/tag/v2.2.1
 [2.2.0]: https://github.com/RijksICTGilde/zad-actions/releases/tag/v2.2.0

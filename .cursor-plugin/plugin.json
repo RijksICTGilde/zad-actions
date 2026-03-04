@@ -1,5 +1,6 @@
 {
   "name": "zad-actions",
+  "displayName": "Zad Actions",
   "description": "Skills voor ZAD deployment: linting, releases, action validatie, workflow generatie en deployment debugging voor Zelfservice voor Applicatie Deployment.",
   "version": "1.2.0"
 }

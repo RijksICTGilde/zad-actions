@@ -9,6 +9,11 @@ allowed-tools:
   - Bash(git push *)
   - Bash(git fetch *)
   - Read(*)
+metadata:
+  created-with-ai: "true"
+  created-with-model: claude-opus-4-20250514
+  created-date: "2025-02-16"
+  status: concept
 ---
 
 # Release ZAD Actions

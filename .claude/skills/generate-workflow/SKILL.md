@@ -7,6 +7,11 @@ description: >-
 model: sonnet
 allowed-tools:
   - Read(*)
+metadata:
+  created-with-ai: "true"
+  created-with-model: claude-opus-4-20250514
+  created-date: "2025-02-16"
+  status: concept
 ---
 
 # Generate ZAD Workflow

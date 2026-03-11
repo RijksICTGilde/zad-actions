@@ -322,7 +322,7 @@ runs:
               if [ -n "$PATH_SUFFIX" ]; then
                 COMP_URL="${COMP_URL%/}/${PATH_SUFFIX#/}"
               fi
-              URLS_JSON=$(echo "$URLS_JSON" | jq --arg k "$comp_name" --arg v "$COMP_URL" '. + {($k): $v}')
+              URLS_JSON=$(echo "$URLS_JSON" | jq -c --arg k "$comp_name" --arg v "$COMP_URL" '. + {($k): $v}')
               if [ -z "$FIRST_URL" ]; then
                 FIRST_URL="$COMP_URL"
               fi

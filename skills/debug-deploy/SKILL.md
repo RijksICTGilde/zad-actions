@@ -86,7 +86,18 @@ All three actions retry transient ZAD API errors (000, 429, 500-504) with expone
 | Symptom | Diagnosis | Fix |
 |---------|-----------|-----|
 | Comment not posted/deleted | Missing permission | Add `permissions: pull-requests: write` to the job |
-| Comment not found for deletion | Different header | Ensure `comment-header` matches between deploy and cleanup actions (default: `## 🚀 Preview Deployment`) |
+| Comment not found for deletion | Different header | Single-component uses `## 🚀 Preview Deployment — {component}`, multi-component uses `## 🚀 Preview Deployment`. Cleanup matches via `startswith()` so the base header covers both modes |
+
+### Multi-component input errors (deploy)
+
+| Symptom | Diagnosis | Fix |
+|---------|-----------|-----|
+| `Error: components input is not valid JSON` | `components` value is malformed JSON | Verify JSON syntax. Use YAML multi-line `\|` for readability. Validate with `echo '<json>' \| jq .` |
+| `Error: components array must contain at least one entry` | Empty array `[]` passed | Provide at least one `{"name": "...", "image": "..."}` entry |
+| `Error: each component must have a non-empty 'name' and 'image'` | Missing or empty fields in an array entry | Ensure every object has both `name` and `image` keys with non-empty values |
+| `Error: component name(s) contain invalid characters` | Component name has characters outside `a-zA-Z0-9._-` | Use only alphanumeric characters, dots, underscores, and hyphens |
+| `Error: either 'components' or both 'component' and 'image' must be provided` | Neither mode is configured | Provide either `components` JSON array OR both `component` and `image` inputs |
+| `urls` output is empty | Using single-component mode | The `urls` output is only set when using the `components` input. In single-component mode, only `url` is set |
 
 ### Retry configuration (deploy/cleanup/scheduled-cleanup)
 

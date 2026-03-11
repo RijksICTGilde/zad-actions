@@ -26,7 +26,7 @@ Create a validated release with annotated tag.
 /release <version>
 ```
 
-Example: `/release 2.1.0`
+Example: `/release 3.0.0`
 
 If no version is provided, ask the user for one.
 
@@ -54,7 +54,7 @@ If no version is provided, ask the user for one.
 4. **Major version warning:**
    If the major version changes (e.g., `1.x.x` to `2.0.0`), warn the user:
    - Breaking changes require updating the `## Migration from vX` section
-   - Users referencing `@v1` will NOT get this update (they need `@v2`)
+   - Users referencing the previous major version will NOT get this update automatically
 
 5. **Extract release notes:**
    Extract the content between `## [<version>]` and the next `## [` heading from CHANGELOG.md.

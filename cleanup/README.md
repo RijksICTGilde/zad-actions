@@ -23,6 +23,8 @@ Removes a ZAD deployment and optionally cleans up associated GitHub resources (e
 | `skip-bot-prs` | No | `true` | Skip cleanup for PRs created by bots (dependabot, renovate, pre-commit-ci, etc.) |
 | `max-retries` | No | `3` | Maximum number of retries for transient API errors (0 to disable) |
 | `retry-delay` | No | `2` | Initial retry delay in seconds (doubles each retry) |
+| `task-timeout` | No | `300` | Maximum time in seconds to wait for async task completion |
+| `task-poll-interval` | No | `3` | Seconds between task status polls |
 
 ## Outputs
 
@@ -41,7 +43,7 @@ Removes a ZAD deployment and optionally cleans up associated GitHub resources (e
 
 ```yaml
 - name: Cleanup ZAD deployment
-  uses: RijksICTGilde/zad-actions/cleanup@v2
+  uses: RijksICTGilde/zad-actions/cleanup@v3
   with:
     api-key: ${{ secrets.ZAD_API_KEY }}
     project-id: regel-k4c
@@ -52,7 +54,7 @@ Removes a ZAD deployment and optionally cleans up associated GitHub resources (e
 
 ```yaml
 - name: Full cleanup
-  uses: RijksICTGilde/zad-actions/cleanup@v2
+  uses: RijksICTGilde/zad-actions/cleanup@v3
   with:
     api-key: ${{ secrets.ZAD_API_KEY }}
     project-id: regel-k4c
@@ -78,7 +80,7 @@ cleanup-preview:
     pull-requests: write  # For delete-pr-comment
   steps:
     - name: Cleanup PR preview
-      uses: RijksICTGilde/zad-actions/cleanup@v2
+      uses: RijksICTGilde/zad-actions/cleanup@v3
       with:
         api-key: ${{ secrets.ZAD_API_KEY }}
         project-id: my-project
@@ -98,7 +100,7 @@ cleanup-preview:
 When used with the deploy action's `comment-on-pr` feature, the cleanup action can remove the PR comment when the deployment is cleaned up:
 
 ```yaml
-- uses: RijksICTGilde/zad-actions/cleanup@v2
+- uses: RijksICTGilde/zad-actions/cleanup@v3
   with:
     api-key: ${{ secrets.ZAD_API_KEY }}
     project-id: my-project
@@ -137,7 +139,7 @@ permissions:
 For automated periodic cleanup of stale PR environments, use the dedicated [scheduled-cleanup](../scheduled-cleanup) action instead of scripting it manually. It handles environment discovery, PR state checking, and cleanup with retry logic built in.
 
 ```yaml
-- uses: RijksICTGilde/zad-actions/scheduled-cleanup@v2
+- uses: RijksICTGilde/zad-actions/scheduled-cleanup@v3
   with:
     api-key: ${{ secrets.ZAD_API_KEY }}
     project-id: my-project
@@ -155,7 +157,7 @@ Check cleanup results and take action:
 ```yaml
 - name: Cleanup deployment
   id: cleanup
-  uses: RijksICTGilde/zad-actions/cleanup@v2
+  uses: RijksICTGilde/zad-actions/cleanup@v3
   with:
     api-key: ${{ secrets.ZAD_API_KEY }}
     project-id: my-project
@@ -180,7 +182,7 @@ Check cleanup results and take action:
 
 ## How It Works
 
-1. **Delete ZAD Deployment**: Calls the ZAD Operations Manager DELETE API
+1. **Delete ZAD Deployment**: Submits a delete task to the ZAD Operations Manager V2 async API and polls until completion
 2. **Delete GitHub Deployments** (optional): Marks all deployments for the environment as inactive, then deletes them
 3. **Delete GitHub Environment** (optional): Deletes the GitHub environment
 4. **Delete Container Image** (optional): Finds and deletes the container version with the specified tag

@@ -9,8 +9,9 @@ Deploys a container image to ZAD Operations Manager.
 | `api-key` | Yes | - | ZAD API key (`ZAD_API_KEY` secret) |
 | `project-id` | Yes | - | ZAD project identifier (e.g., `regel-k4c`) |
 | `deployment-name` | Yes | - | Name of the deployment (e.g., `pr-73`, `production`) |
-| `component` | Yes | - | Component reference (e.g., `editor`, `api`, `my.service`) |
-| `image` | Yes | - | Full container image URI (e.g., `ghcr.io/org/app:tag`) |
+| `component` | No | `''` | Component reference (e.g., `editor`, `api`). Ignored when `components` is set. |
+| `image` | No | `''` | Full container image URI (e.g., `ghcr.io/org/app:tag`). Ignored when `components` is set. |
+| `components` | No | `''` | JSON array of components: `[{"name": "web", "image": "ghcr.io/org/app:tag"}]`. Takes precedence over `component`/`image`. |
 | `clone-from` | No | `''` | Clone configuration from existing deployment |
 | `force-clone` | No | `false` | Force clone even if deployment already exists |
 | `api-base-url` | No | `https://operations-manager.rig.prd1.gn2.quattro.rijksapps.nl/api` | ZAD Operations Manager API base URL |
@@ -31,7 +32,8 @@ Deploys a container image to ZAD Operations Manager.
 
 | Name      | Description                                           |
 |-----------|-------------------------------------------------------|
-| `url`     | URL of the deployed application                       |
+| `url`     | URL of the deployed application (first component when using `components` input) |
+| `urls`    | JSON object mapping component names to URLs (only set when using `components` input) |
 | `skipped` | Whether deployment was skipped due to bot PR detection |
 
 ## Example Usage
@@ -163,9 +165,43 @@ For example:
 - `component: web`, `deployment: pr85`, `project: my-project`
 - URL: `https://web-pr85-my-project.your-domain.example.com`
 
-### Multi-Component Deployment
+### Multi-Component Deployment (Single Step)
 
-Deploy multiple components in the same workflow:
+Deploy multiple components in a single action invocation:
+
+```yaml
+- name: Deploy all components
+  uses: RijksICTGilde/zad-actions/deploy@v2
+  with:
+    api-key: ${{ secrets.ZAD_API_KEY }}
+    project-id: my-project
+    deployment-name: pr${{ github.event.pull_request.number }}
+    components: |
+      [
+        {"name": "frontend", "image": "ghcr.io/org/frontend:${{ github.sha }}"},
+        {"name": "api", "image": "ghcr.io/org/api:${{ github.sha }}"}
+      ]
+    clone-from: production
+    comment-on-pr: true
+```
+
+This creates a single PR comment listing all component URLs:
+
+> ## 🚀 Preview Deployment
+>
+> Your changes have been deployed to a preview environment:
+>
+> **frontend:** https://frontend-pr85-my-project.your-domain.example.com
+> **api:** https://api-pr85-my-project.your-domain.example.com
+>
+> This deployment will be automatically cleaned up when the PR is closed.
+
+> **Tip:** Use `components` for deploying multiple components atomically in a single API call. This is especially important when using `clone-from`, since the clone is applied once per API call — matrix strategy would trigger separate clones per component.
+> Use matrix strategy when components need separate build steps or different runner configurations.
+
+### Multi-Component Deployment (Matrix Strategy)
+
+Deploy multiple components using matrix strategy (separate jobs per component):
 
 ```yaml
 deploy:

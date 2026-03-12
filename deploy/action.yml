@@ -187,7 +187,10 @@ runs:
           fi
 
           # Validate each entry has name and image
-          INVALID=$(echo "$COMPONENTS" | jq -r '.[] | select(.name == null or .name == "" or .image == null or .image == "") | "missing name or image"' | head -n1)
+          JQ_FILTER='.[] | select(.name == null or .name == ""
+            or .image == null or .image == "")
+            | "missing name or image"'
+          INVALID=$(echo "$COMPONENTS" | jq -r "$JQ_FILTER" | head -n1)
           if [ -n "$INVALID" ]; then
             echo "Error: each component must have a non-empty 'name' and 'image'"
             exit 1

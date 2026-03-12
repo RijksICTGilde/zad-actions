@@ -38,6 +38,7 @@ Read `<action>/action.yml` and verify:
 - **Every input has:**
   - `description` (non-empty string)
   - `required` explicitly set to `true` or `false` (not omitted)
+- **Conditional requirements:** `component` and `image` are `required: false` but functionally required when `components` is not set. Verify the action's bash script enforces this mutual exclusion (`either 'components' or both 'component' and 'image' must be provided`)
 - **Every output has:**
   - `description` (non-empty string)
   - `value` referencing a valid step output
@@ -49,6 +50,7 @@ Read `<action>/action.yml` and verify:
   - A step with `id: X` that exists in the action
   - An output `Y` that the step actually sets (via `>> "$GITHUB_OUTPUT"`)
 - **Output values:** Every output `value: ${{ steps.X.outputs.Y }}` must reference a valid step ID and output name
+- **Mutual exclusion:** The `components` input takes precedence over `component`/`image`. Validate that the bash script handles both modes: `COMPONENTS` non-empty triggers multi-component path; otherwise `COMPONENT` + `IMAGE` are required. Verify the `urls` output is only set in multi-component mode and `url` is set in both modes
 
 ### 3. Security validation
 

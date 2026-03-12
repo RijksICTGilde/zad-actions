@@ -18,11 +18,17 @@ inputs:
     description: 'Name of the deployment (e.g., pr-73, production)'
     required: true
   component:
-    description: 'Component reference (e.g., editor, api, my.service)'
-    required: true
+    description: 'Component reference (e.g., editor, api, my.service). Ignored when components is set.'
+    required: false
+    default: ''
   image:
-    description: 'Full container image URI (e.g., ghcr.io/org/app:tag)'
-    required: true
+    description: 'Full container image URI (e.g., ghcr.io/org/app:tag). Ignored when components is set.'
+    required: false
+    default: ''
+  components:
+    description: 'JSON array of components to deploy: [{"name": "web", "image": "ghcr.io/org/app:tag"}]. Takes precedence over component/image.'
+    required: false
+    default: ''
   clone-from:
     description: 'Clone configuration from existing deployment (optional)'
     required: false
@@ -86,8 +92,11 @@ inputs:
 
 outputs:
   url:
-    description: 'URL of the deployed application'
+    description: 'URL of the deployed application (first component when using components input)'
     value: ${{ steps.deploy.outputs.url }}
+  urls:
+    description: 'JSON object mapping component names to URLs (only set when using components input)'
+    value: ${{ steps.deploy.outputs.urls }}
   skipped:
     description: 'Whether deployment was skipped due to bot PR detection'
     value: ${{ steps.bot-check.outputs.skipped == 'true' && 'true' || 'false' }}
@@ -128,6 +137,7 @@ runs:
         DEPLOYMENT_NAME: ${{ inputs.deployment-name }}
         COMPONENT: ${{ inputs.component }}
         IMAGE: ${{ inputs.image }}
+        COMPONENTS: ${{ inputs.components }}
         CLONE_FROM: ${{ inputs.clone-from }}
         FORCE_CLONE: ${{ inputs.force-clone }}
         API_BASE_URL: ${{ inputs.api-base-url }}
@@ -145,10 +155,6 @@ runs:
           echo "Error: deployment-name contains invalid characters (allowed: a-z, A-Z, 0-9, ., _, -)"
           exit 1
         fi
-        if ! echo "$COMPONENT" | grep -qE '^[a-zA-Z0-9._-]+$'; then
-          echo "Error: component contains invalid characters (allowed: a-z, A-Z, 0-9, ., _, -)"
-          exit 1
-        fi
         if [ -n "$CLONE_FROM" ] && ! echo "$CLONE_FROM" | grep -qE '^[a-zA-Z0-9._-]+$'; then
           echo "Error: clone-from contains invalid characters (allowed: a-z, A-Z, 0-9, ., _, -)"
           exit 1
@@ -162,14 +168,72 @@ runs:
           exit 1
         fi
 
+        # Determine mode: multi-component or single-component
+        MULTI_COMPONENT=false
+        if [ -n "$COMPONENTS" ]; then
+          MULTI_COMPONENT=true
+
+          # Validate JSON structure
+          if ! echo "$COMPONENTS" | jq empty 2>/dev/null; then
+            echo "Error: components input is not valid JSON"
+            exit 1
+          fi
+
+          # Validate it's an array with at least one element
+          COMP_COUNT=$(echo "$COMPONENTS" | jq 'length')
+          if [ "$COMP_COUNT" -eq 0 ]; then
+            echo "Error: components array must contain at least one entry"
+            exit 1
+          fi
+
+          # Validate each entry has name and image
+          JQ_FILTER='.[] | select(.name == null or .name == ""
+            or .image == null or .image == "")
+            | "missing name or image"'
+          INVALID=$(echo "$COMPONENTS" | jq -r "$JQ_FILTER" | head -n1)
+          if [ -n "$INVALID" ]; then
+            echo "Error: each component must have a non-empty 'name' and 'image'"
+            exit 1
+          fi
+
+          # Validate each component name matches allowed characters
+          BAD_NAMES=$(echo "$COMPONENTS" | jq -r '.[].name' | grep -vE '^[a-zA-Z0-9._-]+$' || true)
+          if [ -n "$BAD_NAMES" ]; then
+            echo "Error: component name(s) contain invalid characters: $BAD_NAMES"
+            exit 1
+          fi
+        elif [ -n "$COMPONENT" ] && [ -n "$IMAGE" ]; then
+          # Single-component mode
+          if ! echo "$COMPONENT" | grep -qE '^[a-zA-Z0-9._-]+$'; then
+            echo "Error: component contains invalid characters (allowed: a-z, A-Z, 0-9, ., _, -)"
+            exit 1
+          fi
+        else
+          echo "Error: either 'components' or both 'component' and 'image' must be provided"
+          exit 1
+        fi
+
         # Now safe to log validated inputs
         echo "Deploying to ZAD..."
         echo "Project: $PROJECT_ID"
         echo "Deployment: $DEPLOYMENT_NAME"
-        echo "Component: $COMPONENT"
-        echo "Image: $IMAGE"
+        if [ "$MULTI_COMPONENT" = "true" ]; then
+          echo "Components:"
+          echo "$COMPONENTS" | jq -r '.[] | "  - \(.name): \(.image)"'
+        else
+          echo "Component: $COMPONENT"
+          echo "Image: $IMAGE"
+        fi
         if [ -n "$CLONE_FROM" ]; then
           echo "Cloning config from: $CLONE_FROM (force: $FORCE_CLONE)"
+        fi
+
+        # Build the components JSON array
+        if [ "$MULTI_COMPONENT" = "true" ]; then
+          COMPONENTS_JSON=$(echo "$COMPONENTS" | jq '[.[] | {reference: .name, image: .image}]')
+        else
+          COMPONENTS_JSON=$(jq -n --arg ref "$COMPONENT" --arg image "$IMAGE" \
+            '[{reference: $ref, image: $image}]')
         fi
 
         # Build the request payload
@@ -180,30 +244,22 @@ runs:
           fi
           PAYLOAD=$(jq -n \
             --arg name "$DEPLOYMENT_NAME" \
-            --arg ref "$COMPONENT" \
-            --arg image "$IMAGE" \
             --arg clone "$CLONE_FROM" \
             --argjson force "$FORCE_CLONE_BOOL" \
+            --argjson comps "$COMPONENTS_JSON" \
             '{
               deploymentName: $name,
               cloneFrom: $clone,
               forceClone: $force,
-              components: [{
-                reference: $ref,
-                image: $image
-              }]
+              components: $comps
             }')
         else
           PAYLOAD=$(jq -n \
             --arg name "$DEPLOYMENT_NAME" \
-            --arg ref "$COMPONENT" \
-            --arg image "$IMAGE" \
+            --argjson comps "$COMPONENTS_JSON" \
             '{
               deploymentName: $name,
-              components: [{
-                reference: $ref,
-                image: $image
-              }]
+              components: $comps
             }')
         fi
 
@@ -256,19 +312,39 @@ runs:
           echo "Deployment successful (HTTP $FINAL_HTTP_CODE)"
           echo "$FINAL_BODY" | jq . 2>/dev/null || echo "$FINAL_BODY"
 
-          # Extract URL from API response (respects project's domain mode)
-          URL=$(echo "$FINAL_BODY" | jq -r ".urls.\"${DEPLOYMENT_NAME}\".urls.\"${COMPONENT}\"" 2>/dev/null)
-
-          # Fallback to constructed URL if API response doesn't contain it
-          if [ -z "$URL" ] || [ "$URL" = "null" ]; then
-            URL="https://${COMPONENT}-${DEPLOYMENT_NAME}-${PROJECT_ID}.rig.prd1.gn2.quattro.rijksapps.nl"
-            echo "::warning::Could not extract URL from API response, using constructed URL"
+          # Extract URL(s) from API response (respects project's domain mode)
+          if [ "$MULTI_COMPONENT" = "true" ]; then
+            URLS_JSON="{}"
+            FIRST_URL=""
+            while IFS= read -r comp_name; do
+              COMP_URL=$(echo "$FINAL_BODY" | jq -r ".urls.\"${DEPLOYMENT_NAME}\".urls.\"${comp_name}\"" 2>/dev/null)
+              if [ -z "$COMP_URL" ] || [ "$COMP_URL" = "null" ]; then
+                COMP_URL="https://${comp_name}-${DEPLOYMENT_NAME}-${PROJECT_ID}.rig.prd1.gn2.quattro.rijksapps.nl"
+                echo "::warning::Could not extract URL for component '${comp_name}' from API response, using constructed URL"
+              fi
+              if [ -n "$PATH_SUFFIX" ]; then
+                COMP_URL="${COMP_URL%/}/${PATH_SUFFIX#/}"
+              fi
+              URLS_JSON=$(echo "$URLS_JSON" | jq -c --arg k "$comp_name" --arg v "$COMP_URL" '. + {($k): $v}')
+              if [ -z "$FIRST_URL" ]; then
+                FIRST_URL="$COMP_URL"
+              fi
+              echo "Deployed ${comp_name} to: $COMP_URL"
+            done < <(echo "$COMPONENTS" | jq -r '.[].name')
+            echo "url=$FIRST_URL" >> "$GITHUB_OUTPUT"
+            echo "urls=$URLS_JSON" >> "$GITHUB_OUTPUT"
+          else
+            URL=$(echo "$FINAL_BODY" | jq -r ".urls.\"${DEPLOYMENT_NAME}\".urls.\"${COMPONENT}\"" 2>/dev/null)
+            if [ -z "$URL" ] || [ "$URL" = "null" ]; then
+              URL="https://${COMPONENT}-${DEPLOYMENT_NAME}-${PROJECT_ID}.rig.prd1.gn2.quattro.rijksapps.nl"
+              echo "::warning::Could not extract URL from API response, using constructed URL"
+            fi
+            if [ -n "$PATH_SUFFIX" ]; then
+              URL="${URL%/}/${PATH_SUFFIX#/}"
+            fi
+            echo "url=$URL" >> "$GITHUB_OUTPUT"
+            echo "Deployed to: $URL"
           fi
-          if [ -n "$PATH_SUFFIX" ]; then
-            URL="${URL%/}/${PATH_SUFFIX#/}"
-          fi
-          echo "url=$URL" >> "$GITHUB_OUTPUT"
-          echo "Deployed to: $URL"
         else
           if [ "$FINAL_HTTP_CODE" -eq 000 ]; then
             echo "::error::Deployment failed: Unable to connect to ZAD API"
@@ -356,39 +432,58 @@ runs:
       env:
         GH_TOKEN: ${{ inputs.github-token }}
         DEPLOYMENT_URL: ${{ steps.deploy.outputs.url }}
+        URLS_JSON: ${{ steps.deploy.outputs.urls }}
         COMMENT_HEADER: ${{ inputs.comment-header }}
         PR_NUMBER: ${{ github.event.pull_request.number }}
         GITHUB_REPOSITORY: ${{ github.repository }}
         QR_HTML: ${{ steps.qr.outputs.html }}
         COMPONENT: ${{ inputs.component }}
+        COMPONENTS: ${{ inputs.components }}
       run: |
-        # Each component gets its own comment, identified by component-specific header.
-        # Cleanup action still matches all via startswith(COMMENT_HEADER).
-        COMPONENT_HEADER="${COMMENT_HEADER} — ${COMPONENT}"
+        if [ -n "$COMPONENTS" ]; then
+          # Multi-component mode: single combined comment with all URLs.
+          # Uses base header so cleanup action's startswith() still matches.
+          SEARCH_HEADER="${COMMENT_HEADER}"
 
-        # Build the comment body
-        COMMENT_BODY="${COMPONENT_HEADER}"$'\n\n'
-        COMMENT_BODY+="Your changes have been deployed to a preview environment:"$'\n\n'
-        COMMENT_BODY+="**URL:** ${DEPLOYMENT_URL}"$'\n\n'
-        if [ -n "$QR_HTML" ]; then
-          COMMENT_BODY+="${QR_HTML}"$'\n\n'
+          COMMENT_BODY="${COMMENT_HEADER}"$'\n\n'
+          COMMENT_BODY+="Your changes have been deployed to a preview environment:"$'\n\n'
+          while IFS= read -r comp_name; do
+            COMP_URL=$(echo "$URLS_JSON" | jq -r --arg k "$comp_name" '.[$k]')
+            COMMENT_BODY+="**${comp_name}:** ${COMP_URL}"$'\n'
+          done < <(echo "$COMPONENTS" | jq -r '.[].name')
+          COMMENT_BODY+=$'\n'
+          if [ -n "$QR_HTML" ]; then
+            COMMENT_BODY+="${QR_HTML}"$'\n\n'
+          fi
+          COMMENT_BODY+="This deployment will be automatically cleaned up when the PR is closed."
+        else
+          # Single-component mode: per-component comment (existing behavior).
+          # Cleanup action still matches all via startswith(COMMENT_HEADER).
+          SEARCH_HEADER="${COMMENT_HEADER} — ${COMPONENT}"
+
+          COMMENT_BODY="${SEARCH_HEADER}"$'\n\n'
+          COMMENT_BODY+="Your changes have been deployed to a preview environment:"$'\n\n'
+          COMMENT_BODY+="**URL:** ${DEPLOYMENT_URL}"$'\n\n'
+          if [ -n "$QR_HTML" ]; then
+            COMMENT_BODY+="${QR_HTML}"$'\n\n'
+          fi
+          COMMENT_BODY+="This deployment will be automatically cleaned up when the PR is closed."
         fi
-        COMMENT_BODY+="This deployment will be automatically cleaned up when the PR is closed."
 
-        # Check for existing comment for this component
+        # Check for existing comment
         EXISTING_COMMENT_ID=$(gh api "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" \
-          --jq ".[] | select(.body | startswith(\"${COMPONENT_HEADER}\")) | .id" \
+          --jq ".[] | select(.body | startswith(\"${SEARCH_HEADER}\")) | .id" \
           2>/dev/null | head -n1 || echo "")
 
         if [ -n "$EXISTING_COMMENT_ID" ]; then
-          echo "Updating existing PR comment for ${COMPONENT} (ID: $EXISTING_COMMENT_ID)"
+          echo "Updating existing PR comment (ID: $EXISTING_COMMENT_ID)"
           gh api "repos/${GITHUB_REPOSITORY}/issues/comments/${EXISTING_COMMENT_ID}" \
             -X PATCH \
             -f body="$COMMENT_BODY" \
             --silent
           echo "PR comment updated"
         else
-          echo "Creating new PR comment for ${COMPONENT}"
+          echo "Creating new PR comment"
           gh api "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" \
             -X POST \
             -f body="$COMMENT_BODY" \

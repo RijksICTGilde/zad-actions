@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added
+- **deploy** action: Multi-component deployment support
+  - New `components` input: JSON array of `[{"name": "...", "image": "..."}]`
+  - Deploys all components in a single API call
+  - When set, `component` and `image` inputs are ignored
+  - New `urls` output: JSON object mapping component names to URLs
+  - `url` output returns the first component's URL for backward compatibility
+  - PR comment combines all component URLs into a single comment
+  - `component` and `image` inputs are now optional (at least one approach must be provided)
+
 ## [2.4.0] - 2026-03-03
 
 ### Added

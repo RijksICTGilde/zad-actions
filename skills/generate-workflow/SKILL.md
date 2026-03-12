@@ -24,13 +24,13 @@ Generate a complete GitHub Actions workflow for a repository that uses zad-actio
 /generate-workflow
 ```
 
-Or with arguments: `/generate-workflow project-id=my-project component=web`
+Or with arguments: `/generate-workflow project-id=my-project component=web` or `/generate-workflow project-id=my-project multi-component`
 
 ## Steps
 
 1. **Gather project details.** Ask the user for (or accept as arguments):
    - `project-id` (required): ZAD project identifier (e.g., `regel-k4c`)
-   - `component` (required): Component reference (e.g., `web`, `api`, `editor`)
+   - `component` (required unless `multi-component` enabled): Component reference (e.g., `web`, `api`, `editor`)
    - `container-registry` (optional, default: `ghcr.io`): Container registry to use
    - `image-name` (optional, default: `${{ github.repository }}`): Docker image name
    - Features to enable (ask the user):
@@ -40,6 +40,7 @@ Or with arguments: `/generate-workflow project-id=my-project component=web`
      - `clone-from` — clone config from existing deployment (e.g., `production`)
      - `path-suffix` — append a path to the deployment URL (e.g., `/docs/`)
      - `production-deploy` — add production deploy job on push to main
+     - `multi-component` — deploy multiple components in a single atomic API call (uses `components` JSON input instead of `component`/`image`)
 
    - `scheduled-cleanup` — add a weekly scheduled cleanup job for stale PR environments
 
@@ -102,6 +103,39 @@ jobs:
           deployment-name: pr-${{ github.event.pull_request.number }}
           component: <component>
           image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:pr-${{ github.event.number }}
+```
+
+   If `multi-component` is enabled, the `build` job should build and push all component images. Replace the `component`/`image` inputs in the deploy step with `components`:
+
+```yaml
+  deploy-preview:
+    if: github.event_name == 'pull_request' && github.event.action != 'closed'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write  # if comment-on-pr
+    environment:
+      name: pr-${{ github.event.pull_request.number }}
+      url: ${{ steps.deploy.outputs.url }}  # first component's URL
+    steps:
+      - name: Deploy to ZAD
+        id: deploy
+        uses: RijksICTGilde/zad-actions/deploy@v2
+        with:
+          api-key: ${{ secrets.ZAD_API_KEY }}
+          project-id: <project-id>
+          deployment-name: pr-${{ github.event.pull_request.number }}
+          components: |
+            [
+              {"name": "web", "image": "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-web:pr-${{ github.event.number }}"},
+              {"name": "api", "image": "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-api:pr-${{ github.event.number }}"}
+            ]
+```
+
+   The `urls` output contains a JSON object mapping component names to URLs (e.g., `{"web": "https://...", "api": "https://..."}`). The `url` output returns the first component's URL for backward compatibility.
+
+```yaml
 
   cleanup-preview:
     if: github.event_name == 'pull_request' && github.event.action == 'closed'

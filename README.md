@@ -30,6 +30,22 @@ Reusable GitHub Actions for deploying to [ZAD](https://github.com/RijksICTGilde/
     image: ghcr.io/org/app:latest
 ```
 
+### Deploy (Multi-Component)
+
+```yaml
+- name: Deploy to ZAD
+  uses: RijksICTGilde/zad-actions/deploy@v2
+  with:
+    api-key: ${{ secrets.ZAD_API_KEY }}
+    project-id: my-project
+    deployment-name: my-deployment
+    components: |
+      [
+        {"name": "web", "image": "ghcr.io/org/web:latest"},
+        {"name": "api", "image": "ghcr.io/org/api:latest"}
+      ]
+```
+
 ### Cleanup
 
 ```yaml

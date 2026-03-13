@@ -22,6 +22,8 @@ Automatically finds and cleans up ZAD deployments for closed or merged PRs. Inte
 | `api-base-url` | No | `https://operations-manager.rig.prd1.gn2.quattro.rijksapps.nl/api` | ZAD Operations Manager API base URL |
 | `max-retries` | No | `3` | Maximum number of retries for transient ZAD API errors (0 to disable) |
 | `retry-delay` | No | `2` | Initial retry delay in seconds (doubles each retry) |
+| `task-timeout` | No | `300` | Maximum time in seconds to wait for async task completion |
+| `task-poll-interval` | No | `3` | Seconds between task status polls |
 
 ## Outputs
 
@@ -55,7 +57,7 @@ jobs:
       packages: write
       pull-requests: read
     steps:
-      - uses: RijksICTGilde/zad-actions/scheduled-cleanup@v2
+      - uses: RijksICTGilde/zad-actions/scheduled-cleanup@v3
         with:
           api-key: ${{ secrets.ZAD_API_KEY }}
           project-id: my-project
@@ -71,7 +73,7 @@ jobs:
 Test what would be cleaned up without actually deleting anything:
 
 ```yaml
-- uses: RijksICTGilde/zad-actions/scheduled-cleanup@v2
+- uses: RijksICTGilde/zad-actions/scheduled-cleanup@v3
   with:
     api-key: ${{ secrets.ZAD_API_KEY }}
     project-id: my-project
@@ -83,7 +85,7 @@ Test what would be cleaned up without actually deleting anything:
 Clean up environments older than 30 days, even if the PR is still open:
 
 ```yaml
-- uses: RijksICTGilde/zad-actions/scheduled-cleanup@v2
+- uses: RijksICTGilde/zad-actions/scheduled-cleanup@v3
   with:
     api-key: ${{ secrets.ZAD_API_KEY }}
     project-id: my-project
@@ -95,7 +97,7 @@ Clean up environments older than 30 days, even if the PR is still open:
 If your environments use a different naming convention (e.g., `preview-123`):
 
 ```yaml
-- uses: RijksICTGilde/zad-actions/scheduled-cleanup@v2
+- uses: RijksICTGilde/zad-actions/scheduled-cleanup@v3
   with:
     api-key: ${{ secrets.ZAD_API_KEY }}
     project-id: my-project
@@ -110,7 +112,7 @@ If your environments use a different naming convention (e.g., `preview-123`):
 3. **Check**: For each match, extracts the PR number and checks if the PR is still open
 4. **Age check**: If `max-age-days` is set, also marks environments older than N days as stale
 5. **Cleanup**: For each stale environment (unless `dry-run`):
-   - Deletes the ZAD deployment (with retry on transient errors)
+   - Submits a delete task to the ZAD V2 async API and polls until completion (with retry on transient errors)
    - Deletes GitHub deployments (marks inactive, then deletes)
    - Deletes the GitHub environment (if `github-admin-token` provided)
    - Deletes the container image (if `delete-container` enabled)

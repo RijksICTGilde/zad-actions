@@ -62,6 +62,14 @@ inputs:
     description: 'ZAD Operations Manager API base URL'
     required: false
     default: 'https://operations-manager.rig.prd1.gn2.quattro.rijksapps.nl/api'
+  task-timeout:
+    description: 'Maximum time in seconds to wait for async task completion'
+    required: false
+    default: '300'
+  task-poll-interval:
+    description: 'Seconds between task status polls'
+    required: false
+    default: '3'
   max-retries:
     description: 'Maximum number of retries for transient ZAD API errors (0 to disable)'
     required: false
@@ -261,6 +269,8 @@ runs:
         MAX_RETRIES: ${{ inputs.max-retries }}
         RETRY_DELAY: ${{ inputs.retry-delay }}
         PR_NUMBER_PATTERN: ${{ inputs.pr-number-pattern }}
+        TASK_TIMEOUT: ${{ inputs.task-timeout }}
+        TASK_POLL_INTERVAL: ${{ inputs.task-poll-interval }}
       run: |
         # Validate inputs
         if ! echo "$PROJECT_ID" | grep -qE '^[a-zA-Z0-9._-]+$'; then
@@ -324,6 +334,60 @@ runs:
           done
         }
 
+        # Poll async task until completion.
+        # Sets TASK_RESULT on success. Returns non-zero on failure/timeout.
+        poll_task() {
+          local poll_url="$1"
+          local elapsed=0
+          while [ "$elapsed" -lt "$TASK_TIMEOUT" ]; do
+            local response
+            response=$(curl -s -w "\n%{http_code}" --max-time 60 \
+              -H "X-API-Key: $ZAD_API_KEY" \
+              "$poll_url")
+            local http_code body status
+            http_code=$(echo "$response" | tail -n1)
+            body=$(echo "$response" | sed '$d')
+
+            if [ "$http_code" -lt 200 ] || [ "$http_code" -ge 300 ]; then
+              echo "::warning::Task poll returned HTTP $http_code, retrying..."
+              sleep "$TASK_POLL_INTERVAL"
+              elapsed=$((elapsed + TASK_POLL_INTERVAL))
+              continue
+            fi
+
+            status=$(echo "$body" | jq -r '.status' 2>/dev/null)
+            case "$status" in
+              completed)
+                TASK_RESULT="$body"
+                return 0
+                ;;
+              failed|cancelled)
+                local error_msg
+                error_msg=$(echo "$body" | jq -r '.error_message // .result.error // "unknown error"' 2>/dev/null)
+                echo "::warning::Task $status: $error_msg"
+                TASK_RESULT="$body"
+                return 1
+                ;;
+              pending|claimed|running)
+                local step percent
+                step=$(echo "$body" | jq -r '.current_step // empty' 2>/dev/null)
+                percent=$(echo "$body" | jq -r '.progress_percent // 0' 2>/dev/null)
+                if [ -n "$step" ]; then
+                  echo "Task $status (${percent}%): $step"
+                fi
+                ;;
+              *)
+                echo "::warning::Unknown task status: $status"
+                ;;
+            esac
+
+            sleep "$TASK_POLL_INTERVAL"
+            elapsed=$((elapsed + TASK_POLL_INTERVAL))
+          done
+          echo "::error::Task polling timed out after ${TASK_TIMEOUT}s"
+          return 1
+        }
+
         CLEANED=0
 
         if [ "$DRY_RUN" = "true" ]; then
@@ -343,11 +407,23 @@ runs:
           echo "--- Cleaning up: $ENV_NAME ---"
           ENV_SUCCESS=true
 
-          # 1. Delete ZAD deployment (with retry)
-          if curl_with_retry "$API_BASE_URL/projects/$PROJECT_ID/$ENV_NAME" \
+          # 1. Delete ZAD deployment (V2 async with retry)
+          if curl_with_retry "$API_BASE_URL/v2/projects/$PROJECT_ID/$ENV_NAME" \
               -X DELETE \
               -H "X-API-Key: $ZAD_API_KEY"; then
-            echo "ZAD deployment '$ENV_NAME' deleted"
+            TASK_ID=$(echo "$FINAL_BODY" | jq -r '.task_id' 2>/dev/null)
+            POLL_URL=$(echo "$FINAL_BODY" | jq -r '.poll_url' 2>/dev/null)
+            echo "Delete task accepted for '$ENV_NAME' (ID: $TASK_ID)"
+
+            POLL_BASE="${API_BASE_URL%/api}"
+            FULL_POLL_URL="${POLL_BASE}${POLL_URL}"
+
+            if poll_task "$FULL_POLL_URL"; then
+              echo "ZAD deployment '$ENV_NAME' deleted"
+            else
+              echo "::warning::Delete task for '$ENV_NAME' did not complete successfully"
+              ENV_SUCCESS=false
+            fi
           elif [ "$FINAL_HTTP_CODE" -eq 404 ]; then
             echo "ZAD deployment '$ENV_NAME' not found (already deleted)"
             ENV_SUCCESS=false

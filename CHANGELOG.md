@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added
+- **deploy** action: Multi-component deployment support
+  - New `components` input: JSON array of `[{"name": "...", "image": "..."}]`
+  - Deploys all components in a single API call
+  - When set, `component` and `image` inputs are ignored
+  - New `urls` output: JSON object mapping component names to URLs
+  - `url` output returns the first component's URL for backward compatibility
+  - PR comment combines all component URLs into a single comment
+  - `component` and `image` inputs are now optional (at least one approach must be provided)
+
+## [3.0.0] - 2026-03-11
+
+### Changed
+- **BREAKING**: Migrate from synchronous V1 API to async V2 API
+  - Deploy, cleanup, and scheduled-cleanup now use `/api/v2/` endpoints
+  - Operations return a task ID immediately (HTTP 202) and are polled until completion
+  - Task progress (percentage, current step) is logged during polling
+  - Users must update from `@v2` to `@v3` to use this version
+
+### Added
+- **all actions**: New `task-timeout` input (default: `300`s) — maximum wait for async task completion
+- **all actions**: New `task-poll-interval` input (default: `3`s) — interval between task status polls
+
 ## [2.4.0] - 2026-03-03
 
 ### Added

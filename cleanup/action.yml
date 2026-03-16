@@ -172,98 +172,9 @@ runs:
         # Now safe to log
         echo "Deleting ZAD deployment: $DEPLOYMENT_NAME from project: $PROJECT_ID"
 
-        # Retry helper: curl_with_retry URL [curl_args...]
-        # Uses MAX_RETRIES and RETRY_DELAY from environment.
-        # Sets FINAL_HTTP_CODE and FINAL_BODY after completion.
-        curl_with_retry() {
-          local url="$1"; shift
-          local attempt=0
-          local delay="$RETRY_DELAY"
-          while true; do
-            local response
-            response=$(curl -s -w "\n%{http_code}" --max-time 60 "$@" "$url")
-            FINAL_HTTP_CODE=$(echo "$response" | tail -n1)
-            FINAL_BODY=$(echo "$response" | sed '$d')
-
-            # Success
-            if [ "$FINAL_HTTP_CODE" -ge 200 ] && [ "$FINAL_HTTP_CODE" -lt 300 ]; then
-              return 0
-            fi
-
-            # Determine if retryable
-            local retryable=false
-            if [ "$FINAL_HTTP_CODE" -eq 000 ] || [ "$FINAL_HTTP_CODE" -eq 429 ]; then
-              retryable=true
-            elif [ "$FINAL_HTTP_CODE" -ge 500 ] && [ "$FINAL_HTTP_CODE" -le 504 ]; then
-              retryable=true
-            fi
-
-            if [ "$retryable" = "true" ] && [ "$attempt" -lt "$MAX_RETRIES" ]; then
-              attempt=$((attempt + 1))
-              echo "::warning::Transient error (HTTP $FINAL_HTTP_CODE), retrying in ${delay}s (attempt $attempt/$MAX_RETRIES)..."
-              sleep "$delay"
-              delay=$((delay * 2))
-              continue
-            fi
-
-            # Non-retryable or retries exhausted
-            return 1
-          done
-        }
-
-        # Poll async task until completion.
-        # Sets TASK_RESULT on success. Returns non-zero on failure/timeout.
-        poll_task() {
-          local poll_url="$1"
-          local elapsed=0
-          while [ "$elapsed" -lt "$TASK_TIMEOUT" ]; do
-            local response
-            response=$(curl -s -w "\n%{http_code}" --max-time 60 \
-              -H "X-API-Key: $ZAD_API_KEY" \
-              "$poll_url")
-            local http_code body status
-            http_code=$(echo "$response" | tail -n1)
-            body=$(echo "$response" | sed '$d')
-
-            if [ "$http_code" -lt 200 ] || [ "$http_code" -ge 300 ]; then
-              echo "::warning::Task poll returned HTTP $http_code, retrying..."
-              sleep "$TASK_POLL_INTERVAL"
-              elapsed=$((elapsed + TASK_POLL_INTERVAL))
-              continue
-            fi
-
-            status=$(echo "$body" | jq -r '.status' 2>/dev/null)
-            case "$status" in
-              completed)
-                TASK_RESULT="$body"
-                return 0
-                ;;
-              failed|cancelled)
-                local error_msg
-                error_msg=$(echo "$body" | jq -r '.error_message // .result.error // "unknown error"' 2>/dev/null)
-                echo "::warning::Task $status: $error_msg"
-                TASK_RESULT="$body"
-                return 1
-                ;;
-              pending|claimed|running)
-                local step percent
-                step=$(echo "$body" | jq -r '.current_step // empty' 2>/dev/null)
-                percent=$(echo "$body" | jq -r '.progress_percent // 0' 2>/dev/null)
-                if [ -n "$step" ]; then
-                  echo "Task $status (${percent}%): $step"
-                fi
-                ;;
-              *)
-                echo "::warning::Unknown task status: $status"
-                ;;
-            esac
-
-            sleep "$TASK_POLL_INTERVAL"
-            elapsed=$((elapsed + TASK_POLL_INTERVAL))
-          done
-          echo "::error::Task polling timed out after ${TASK_TIMEOUT}s"
-          return 1
-        }
+        # Load shared helpers (curl_with_retry, poll_task, build_poll_url)
+        # shellcheck source=../scripts/zad-common.sh
+        source "$GITHUB_ACTION_PATH/../scripts/zad-common.sh"
 
         if curl_with_retry "$API_BASE_URL/v2/projects/$PROJECT_ID/$DEPLOYMENT_NAME" \
             -X DELETE \
@@ -273,15 +184,13 @@ runs:
           POLL_URL=$(echo "$FINAL_BODY" | jq -r '.poll_url' 2>/dev/null)
           echo "Delete task accepted (ID: $TASK_ID), polling for completion..."
 
-          # Construct full poll URL from relative path
-          POLL_BASE="${API_BASE_URL%/api}"
-          FULL_POLL_URL="${POLL_BASE}${POLL_URL}"
+          FULL_POLL_URL=$(build_poll_url "$POLL_URL")
 
           if poll_task "$FULL_POLL_URL"; then
             echo "ZAD deployment deleted successfully"
             echo "deleted=true" >> "$GITHUB_OUTPUT"
           else
-            echo "::warning::ZAD deployment delete task did not complete successfully"
+            echo "::error::ZAD deployment delete task did not complete successfully"
             echo "deleted=false" >> "$GITHUB_OUTPUT"
           fi
         else

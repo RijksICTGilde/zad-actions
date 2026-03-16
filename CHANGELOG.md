@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed
+- **all actions**: Extract `curl_with_retry`, `poll_task`, and `build_poll_url` to shared `scripts/zad-common.sh`
+- **all actions**: Poll URL construction now handles absolute URLs from the API (not just relative paths)
+- **cleanup, scheduled-cleanup**: Failed delete tasks now log `::error::` instead of `::warning::` (consistent with deploy)
+
+### Fixed
+- **deploy**: PR comment URL parsing now uses tab delimiter instead of `=`, preventing breakage when URLs contain query parameters
+- **all actions**: `poll_task()` now fails fast on 4xx HTTP errors instead of retrying until timeout
+- **scheduled-cleanup**: Added missing validation for `task-timeout` and `task-poll-interval` inputs
+
 ### Added
 - **deploy** action: Multi-component deployment support
   - New `components` input: JSON array of `[{"name": "...", "image": "..."}]`

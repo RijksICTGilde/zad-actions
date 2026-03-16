@@ -281,98 +281,9 @@ runs:
             }')
         fi
 
-        # Retry helper: curl_with_retry URL [curl_args...]
-        # Uses MAX_RETRIES and RETRY_DELAY from environment.
-        # Sets FINAL_HTTP_CODE and FINAL_BODY after completion.
-        curl_with_retry() {
-          local url="$1"; shift
-          local attempt=0
-          local delay="$RETRY_DELAY"
-          while true; do
-            local response
-            response=$(curl -s -w "\n%{http_code}" --max-time 60 "$@" "$url")
-            FINAL_HTTP_CODE=$(echo "$response" | tail -n1)
-            FINAL_BODY=$(echo "$response" | sed '$d')
-
-            # Success
-            if [ "$FINAL_HTTP_CODE" -ge 200 ] && [ "$FINAL_HTTP_CODE" -lt 300 ]; then
-              return 0
-            fi
-
-            # Determine if retryable
-            local retryable=false
-            if [ "$FINAL_HTTP_CODE" -eq 000 ] || [ "$FINAL_HTTP_CODE" -eq 429 ]; then
-              retryable=true
-            elif [ "$FINAL_HTTP_CODE" -ge 500 ] && [ "$FINAL_HTTP_CODE" -le 504 ]; then
-              retryable=true
-            fi
-
-            if [ "$retryable" = "true" ] && [ "$attempt" -lt "$MAX_RETRIES" ]; then
-              attempt=$((attempt + 1))
-              echo "::warning::Transient error (HTTP $FINAL_HTTP_CODE), retrying in ${delay}s (attempt $attempt/$MAX_RETRIES)..."
-              sleep "$delay"
-              delay=$((delay * 2))
-              continue
-            fi
-
-            # Non-retryable or retries exhausted
-            return 1
-          done
-        }
-
-        # Poll async task until completion.
-        # Sets TASK_RESULT on success. Returns non-zero on failure/timeout.
-        poll_task() {
-          local poll_url="$1"
-          local elapsed=0
-          while [ "$elapsed" -lt "$TASK_TIMEOUT" ]; do
-            local response
-            response=$(curl -s -w "\n%{http_code}" --max-time 60 \
-              -H "X-API-Key: $ZAD_API_KEY" \
-              "$poll_url")
-            local http_code body status
-            http_code=$(echo "$response" | tail -n1)
-            body=$(echo "$response" | sed '$d')
-
-            if [ "$http_code" -lt 200 ] || [ "$http_code" -ge 300 ]; then
-              echo "::warning::Task poll returned HTTP $http_code, retrying..."
-              sleep "$TASK_POLL_INTERVAL"
-              elapsed=$((elapsed + TASK_POLL_INTERVAL))
-              continue
-            fi
-
-            status=$(echo "$body" | jq -r '.status' 2>/dev/null)
-            case "$status" in
-              completed)
-                TASK_RESULT="$body"
-                return 0
-                ;;
-              failed|cancelled)
-                local error_msg
-                error_msg=$(echo "$body" | jq -r '.error_message // .result.error // "unknown error"' 2>/dev/null)
-                echo "::error::Task $status: $error_msg"
-                TASK_RESULT="$body"
-                return 1
-                ;;
-              pending|claimed|running)
-                local step percent
-                step=$(echo "$body" | jq -r '.current_step // empty' 2>/dev/null)
-                percent=$(echo "$body" | jq -r '.progress_percent // 0' 2>/dev/null)
-                if [ -n "$step" ]; then
-                  echo "Task $status (${percent}%): $step"
-                fi
-                ;;
-              *)
-                echo "::warning::Unknown task status: $status"
-                ;;
-            esac
-
-            sleep "$TASK_POLL_INTERVAL"
-            elapsed=$((elapsed + TASK_POLL_INTERVAL))
-          done
-          echo "::error::Task polling timed out after ${TASK_TIMEOUT}s"
-          return 1
-        }
+        # Load shared helpers (curl_with_retry, poll_task, build_poll_url)
+        # shellcheck source=../scripts/zad-common.sh
+        source "$GITHUB_ACTION_PATH/../scripts/zad-common.sh"
 
         # Make the API call with retry logic (V2 async endpoint)
         # Safe to retry: upsert-deployment is idempotent (same payload = same result)
@@ -386,10 +297,7 @@ runs:
           POLL_URL=$(echo "$FINAL_BODY" | jq -r '.poll_url' 2>/dev/null)
           echo "Task accepted (ID: $TASK_ID), polling for completion..."
 
-          # Construct full poll URL from relative path
-          # API_BASE_URL ends with /api, poll_url starts with /api/tasks/...
-          POLL_BASE="${API_BASE_URL%/api}"
-          FULL_POLL_URL="${POLL_BASE}${POLL_URL}"
+          FULL_POLL_URL=$(build_poll_url "$POLL_URL")
 
           if poll_task "$FULL_POLL_URL"; then
             echo "Deployment successful"
@@ -464,29 +372,44 @@ runs:
       shell: bash
       env:
         DEPLOYMENT_URL: ${{ steps.deploy.outputs.url }}
+        DEPLOYMENT_URLS: ${{ steps.deploy.outputs.urls }}
+        COMPONENTS: ${{ inputs.components }}
         HEALTH_ENDPOINT: ${{ inputs.health-endpoint }}
         WAIT_TIMEOUT: ${{ inputs.wait-timeout }}
         WAIT_INTERVAL: ${{ inputs.wait-interval }}
       run: |
-        URL="${DEPLOYMENT_URL}${HEALTH_ENDPOINT}"
-        echo "Waiting for $URL to be ready..."
+        # Build list of URLs to check (tab-separated: name\turl)
+        if [ -n "$COMPONENTS" ] && [ -n "$DEPLOYMENT_URLS" ]; then
+          PENDING=$(echo "$DEPLOYMENT_URLS" | jq -r 'to_entries[] | "\(.key)\t\(.value)"')
+        else
+          PENDING=$(printf "deployment\t%s" "$DEPLOYMENT_URL")
+        fi
 
+        echo "Waiting for $(echo "$PENDING" | wc -l | tr -d ' ') endpoint(s) to be ready..."
         ELAPSED=0
-        while [ "$ELAPSED" -lt "$WAIT_TIMEOUT" ]; do
-          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 "$URL" || echo "000")
-
-          if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 400 ]; then
-            echo "Deployment is ready (HTTP $HTTP_CODE)"
-            exit 0
+        while [ -n "$PENDING" ] && [ "$ELAPSED" -lt "$WAIT_TIMEOUT" ]; do
+          STILL_PENDING=""
+          while IFS=$'\t' read -r name url; do
+            HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 "${url}${HEALTH_ENDPOINT}" || echo "000")
+            if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 400 ]; then
+              echo "$name is ready (HTTP $HTTP_CODE)"
+            else
+              STILL_PENDING+="${name}\t${url}\n"
+            fi
+          done <<< "$PENDING"
+          PENDING=$(printf '%b' "$STILL_PENDING" | sed '/^$/d')
+          if [ -n "$PENDING" ]; then
+            echo "Waiting... (${ELAPSED}s elapsed)"
+            sleep "$WAIT_INTERVAL"
+            ELAPSED=$((ELAPSED + WAIT_INTERVAL))
           fi
-
-          echo "Waiting... (HTTP $HTTP_CODE, ${ELAPSED}s elapsed)"
-          sleep "$WAIT_INTERVAL"
-          ELAPSED=$((ELAPSED + WAIT_INTERVAL))
         done
 
-        echo "::error::Deployment did not become ready within ${WAIT_TIMEOUT}s"
-        exit 1
+        if [ -n "$PENDING" ]; then
+          NAMES=$(echo "$PENDING" | cut -f1 | paste -sd', ')
+          echo "::error::Endpoint(s) not ready within ${WAIT_TIMEOUT}s: $NAMES"
+          exit 1
+        fi
 
     - name: Generate QR code
       id: qr
@@ -534,9 +457,9 @@ runs:
           # Multi-component: single comment with all URLs
           COMMENT_BODY="${COMMENT_HEADER}"$'\n\n'
           COMMENT_BODY+="Your changes have been deployed to a preview environment:"$'\n\n'
-          while IFS='=' read -r comp_name comp_url; do
+          while IFS=$'\t' read -r comp_name comp_url; do
             COMMENT_BODY+="**${comp_name}:** ${comp_url}"$'\n\n'
-          done < <(echo "$DEPLOYMENT_URLS" | jq -r 'to_entries[] | "\(.key)=\(.value)"')
+          done < <(echo "$DEPLOYMENT_URLS" | jq -r 'to_entries[] | "\(.key)\t\(.value)"')
           if [ -n "$QR_HTML" ]; then
             COMMENT_BODY+="${QR_HTML}"$'\n\n'
           fi

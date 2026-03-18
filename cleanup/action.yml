@@ -380,22 +380,32 @@ runs:
         PR_NUMBER: ${{ github.event.pull_request.number }}
         GITHUB_REPOSITORY: ${{ github.repository }}
       run: |
-        # Find existing comment by header
-        COMMENT_ID=$(gh api "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" \
-          --jq ".[] | select(.body | startswith(\"${COMMENT_HEADER}\")) | .id" \
-          2>/dev/null | head -n1 || echo "")
+        # Find all comments matching the header (covers both multi-component
+        # single comment and multiple single-component comments)
+        COMMENT_IDS=$(gh api "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" \
+          --jq "[.[] | select(.body | startswith(\"${COMMENT_HEADER}\")) | .id]" \
+          2>/dev/null || echo "[]")
 
-        if [ -z "$COMMENT_ID" ]; then
-          echo "No existing deploy comment found with header: ${COMMENT_HEADER}"
+        COUNT=$(echo "$COMMENT_IDS" | jq 'length')
+        if [ "$COUNT" -eq 0 ]; then
+          echo "No existing deploy comment(s) found with header: ${COMMENT_HEADER}"
           echo "deleted=false" >> "$GITHUB_OUTPUT"
           exit 0
         fi
 
-        echo "Deleting PR comment (ID: $COMMENT_ID)"
-        if gh api "repos/${GITHUB_REPOSITORY}/issues/comments/${COMMENT_ID}" -X DELETE 2>/dev/null; then
-          echo "PR comment deleted successfully"
+        echo "Found $COUNT deploy comment(s) to delete"
+        DELETED=0
+        for COMMENT_ID in $(echo "$COMMENT_IDS" | jq -r '.[]'); do
+          echo "Deleting PR comment (ID: $COMMENT_ID)"
+          if gh api "repos/${GITHUB_REPOSITORY}/issues/comments/${COMMENT_ID}" -X DELETE 2>/dev/null; then
+            echo "PR comment deleted successfully"
+            DELETED=$((DELETED + 1))
+          else
+            echo "::warning::Failed to delete PR comment $COMMENT_ID"
+          fi
+        done
+        if [ "$DELETED" -gt 0 ]; then
           echo "deleted=true" >> "$GITHUB_OUTPUT"
         else
-          echo "::warning::Failed to delete PR comment"
           echo "deleted=false" >> "$GITHUB_OUTPUT"
         fi

@@ -97,6 +97,18 @@ inputs:
     description: 'Path to append to the deployment URL (e.g. /docs/)'
     required: false
     default: ''
+  domain-format:
+    description: 'URL format template ID for hostname generation (e.g., component-deployment-subdomain, deployment.project)'
+    required: false
+    default: ''
+  subdomain:
+    description: 'Subdomain for URL generation. Required when domain-format contains "subdomain". Must be a valid DNS label.'
+    required: false
+    default: ''
+  base-domain:
+    description: 'Base domain for URL generation (e.g., rijksapp.nl). Must be a cluster-supported domain.'
+    required: false
+    default: ''
 
 outputs:
   url:
@@ -154,6 +166,9 @@ runs:
         PATH_SUFFIX: ${{ inputs.path-suffix }}
         TASK_TIMEOUT: ${{ inputs.task-timeout }}
         TASK_POLL_INTERVAL: ${{ inputs.task-poll-interval }}
+        DOMAIN_FORMAT: ${{ inputs.domain-format }}
+        SUBDOMAIN: ${{ inputs.subdomain }}
+        BASE_DOMAIN: ${{ inputs.base-domain }}
       run: |
         # Validate inputs FIRST (before logging)
         # Allow alphanumeric, hyphens, underscores, and dots
@@ -279,6 +294,17 @@ runs:
               deploymentName: $name,
               components: $comps
             }')
+        fi
+
+        # Add optional domain fields when set
+        if [ -n "$DOMAIN_FORMAT" ]; then
+          PAYLOAD=$(echo "$PAYLOAD" | jq --arg df "$DOMAIN_FORMAT" '. + {domain_format: $df}')
+        fi
+        if [ -n "$SUBDOMAIN" ]; then
+          PAYLOAD=$(echo "$PAYLOAD" | jq --arg sd "$SUBDOMAIN" '. + {subdomain: $sd}')
+        fi
+        if [ -n "$BASE_DOMAIN" ]; then
+          PAYLOAD=$(echo "$PAYLOAD" | jq --arg bd "$BASE_DOMAIN" '. + {base_domain: $bd}')
         fi
 
         # Load shared helpers (curl_with_retry, poll_task, build_poll_url)

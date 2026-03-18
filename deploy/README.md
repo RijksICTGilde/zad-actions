@@ -9,8 +9,9 @@ Deploys a container image to ZAD Operations Manager.
 | `api-key` | Yes | - | ZAD API key (`ZAD_API_KEY` secret) |
 | `project-id` | Yes | - | ZAD project identifier (e.g., `regel-k4c`) |
 | `deployment-name` | Yes | - | Name of the deployment (e.g., `pr-73`, `production`) |
-| `component` | Yes | - | Component reference (e.g., `editor`, `api`, `my.service`) |
-| `image` | Yes | - | Full container image URI (e.g., `ghcr.io/org/app:tag`) |
+| `component` | No | `''` | Component reference (e.g., `editor`, `api`). Ignored when `components` is set. |
+| `image` | No | `''` | Full container image URI (e.g., `ghcr.io/org/app:tag`). Ignored when `components` is set. |
+| `components` | No | `''` | JSON array of components: `[{"name": "web", "image": "ghcr.io/org/app:tag"}]`. Takes precedence over `component`/`image`. |
 | `clone-from` | No | `''` | Clone configuration from existing deployment |
 | `force-clone` | No | `false` | Force clone even if deployment already exists |
 | `api-base-url` | No | `https://operations-manager.rig.prd1.gn2.quattro.rijksapps.nl/api` | ZAD Operations Manager API base URL |
@@ -25,13 +26,16 @@ Deploys a container image to ZAD Operations Manager.
 | `skip-bot-prs` | No | `true` | Skip deployment for PRs created by bots (dependabot, renovate, pre-commit-ci, etc.) |
 | `max-retries` | No | `3` | Maximum number of retries for transient API errors (0 to disable) |
 | `retry-delay` | No | `2` | Initial retry delay in seconds (doubles each retry) |
+| `task-timeout` | No | `300` | Maximum time in seconds to wait for async task completion |
+| `task-poll-interval` | No | `3` | Seconds between task status polls |
 | `path-suffix` | No | `''` | Path to append to the deployment URL (e.g. `/docs/`) |
 
 ## Outputs
 
 | Name      | Description                                           |
 |-----------|-------------------------------------------------------|
-| `url`     | URL of the deployed application                       |
+| `url`     | URL of the deployed application (first component when using `components` input) |
+| `urls`    | JSON object mapping component names to URLs (only set when using `components` input) |
 | `skipped` | Whether deployment was skipped due to bot PR detection |
 
 ## Example Usage
@@ -40,7 +44,7 @@ Deploys a container image to ZAD Operations Manager.
 
 ```yaml
 - name: Deploy to ZAD
-  uses: RijksICTGilde/zad-actions/deploy@v2
+  uses: RijksICTGilde/zad-actions/deploy@v3
   with:
     api-key: ${{ secrets.ZAD_API_KEY }}
     project-id: my-project
@@ -54,7 +58,7 @@ Deploys a container image to ZAD Operations Manager.
 ```yaml
 - name: Deploy PR Preview
   id: deploy
-  uses: RijksICTGilde/zad-actions/deploy@v2
+  uses: RijksICTGilde/zad-actions/deploy@v3
   with:
     api-key: ${{ secrets.ZAD_API_KEY }}
     project-id: my-project
@@ -76,7 +80,7 @@ deploy-preview:
     pull-requests: write
   steps:
     - name: Deploy PR Preview
-      uses: RijksICTGilde/zad-actions/deploy@v2
+      uses: RijksICTGilde/zad-actions/deploy@v3
       with:
         api-key: ${{ secrets.ZAD_API_KEY }}
         project-id: my-project
@@ -129,7 +133,7 @@ deploy:
   steps:
     - name: Deploy to ZAD
       id: deploy
-      uses: RijksICTGilde/zad-actions/deploy@v2
+      uses: RijksICTGilde/zad-actions/deploy@v3
       with:
         api-key: ${{ secrets.ZAD_API_KEY }}
         project-id: my-project
@@ -163,9 +167,42 @@ For example:
 - `component: web`, `deployment: pr85`, `project: my-project`
 - URL: `https://web-pr85-my-project.your-domain.example.com`
 
-### Multi-Component Deployment
+### Multi-Component Deployment (Single Step)
 
-Deploy multiple components in the same workflow:
+Deploy multiple components in a single action invocation:
+
+```yaml
+- name: Deploy all components
+  uses: RijksICTGilde/zad-actions/deploy@v3
+  with:
+    api-key: ${{ secrets.ZAD_API_KEY }}
+    project-id: my-project
+    deployment-name: pr${{ github.event.pull_request.number }}
+    components: |
+      [
+        {"name": "frontend", "image": "ghcr.io/org/frontend:${{ github.sha }}"},
+        {"name": "api", "image": "ghcr.io/org/api:${{ github.sha }}"}
+      ]
+    clone-from: production
+    comment-on-pr: true
+```
+
+This creates a single PR comment listing all component URLs:
+
+> ## 🚀 Preview Deployment
+>
+> Your changes have been deployed to a preview environment:
+>
+> **frontend:** https://frontend-pr85-my-project.your-domain.example.com
+> **api:** https://api-pr85-my-project.your-domain.example.com
+>
+> This deployment will be automatically cleaned up when the PR is closed.
+
+> **Tip:** Use `components` for deploying multiple components atomically in a single API call. This is especially important when using `clone-from`, since the clone is applied once per API call — matrix strategy would trigger separate clones per component.
+
+### Multi-Component Deployment (Matrix Strategy)
+
+Deploy multiple components using matrix strategy (separate jobs per component):
 
 ```yaml
 deploy:
@@ -175,7 +212,7 @@ deploy:
       component: [frontend, api, worker]
   steps:
     - name: Deploy ${{ matrix.component }}
-      uses: RijksICTGilde/zad-actions/deploy@v2
+      uses: RijksICTGilde/zad-actions/deploy@v3
       with:
         api-key: ${{ secrets.ZAD_API_KEY }}
         project-id: my-project
@@ -194,7 +231,7 @@ deploy:
   steps:
     - name: Deploy to preview
       if: github.ref == 'refs/heads/staging'
-      uses: RijksICTGilde/zad-actions/deploy@v2
+      uses: RijksICTGilde/zad-actions/deploy@v3
       with:
         api-key: ${{ secrets.ZAD_API_KEY }}
         project-id: my-project
@@ -204,7 +241,7 @@ deploy:
 
     - name: Deploy to production
       if: github.ref == 'refs/heads/main'
-      uses: RijksICTGilde/zad-actions/deploy@v2
+      uses: RijksICTGilde/zad-actions/deploy@v3
       with:
         api-key: ${{ secrets.ZAD_API_KEY }}
         project-id: my-project
@@ -219,7 +256,7 @@ If your application is served under a subpath (e.g. `/docs/`), use `path-suffix`
 
 ```yaml
 - name: Deploy to ZAD
-  uses: RijksICTGilde/zad-actions/deploy@v2
+  uses: RijksICTGilde/zad-actions/deploy@v3
   with:
     api-key: ${{ secrets.ZAD_API_KEY }}
     project-id: my-project
@@ -237,7 +274,7 @@ Wait for deployment to be healthy using the built-in `wait-for-ready` feature:
 
 ```yaml
 - name: Deploy to ZAD
-  uses: RijksICTGilde/zad-actions/deploy@v2
+  uses: RijksICTGilde/zad-actions/deploy@v3
   with:
     api-key: ${{ secrets.ZAD_API_KEY }}
     project-id: my-project
@@ -265,7 +302,8 @@ Backoff is exponential: 2s → 4s → 8s (default). Set `max-retries: '0'` to di
 ## How It Works
 
 1. Constructs a JSON payload with deployment configuration
-2. Calls the ZAD Operations Manager upsert-deployment API (with retry on transient errors)
-3. Returns the constructed URL as an output
+2. Calls the ZAD Operations Manager V2 async API to submit the deployment task (with retry on transient errors)
+3. Polls the task status until completion or timeout
+4. Returns the constructed URL as an output
 
 If `clone-from` is specified, the new deployment will inherit configuration from the specified existing deployment. Use `force-clone: true` to re-clone configuration even if the deployment already exists.

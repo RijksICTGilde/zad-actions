@@ -53,6 +53,14 @@ inputs:
     description: 'ZAD Operations Manager API base URL'
     required: false
     default: 'https://operations-manager.rig.prd1.gn2.quattro.rijksapps.nl/api'
+  task-timeout:
+    description: 'Maximum time in seconds to wait for async task completion'
+    required: false
+    default: '300'
+  task-poll-interval:
+    description: 'Seconds between task status polls'
+    required: false
+    default: '3'
   delete-pr-comment:
     description: 'Delete the deploy PR comment (requires github-token with pull-requests:write)'
     required: false
@@ -131,6 +139,8 @@ runs:
         API_BASE_URL: ${{ inputs.api-base-url }}
         MAX_RETRIES: ${{ inputs.max-retries }}
         RETRY_DELAY: ${{ inputs.retry-delay }}
+        TASK_TIMEOUT: ${{ inputs.task-timeout }}
+        TASK_POLL_INTERVAL: ${{ inputs.task-poll-interval }}
       run: |
         # Validate inputs FIRST (before logging)
         # Allow alphanumeric, hyphens, underscores, and dots
@@ -150,54 +160,39 @@ runs:
           echo "Error: retry-delay must be a non-negative integer"
           exit 1
         fi
+        if ! echo "$TASK_TIMEOUT" | grep -qE '^[0-9]+$'; then
+          echo "Error: task-timeout must be a non-negative integer"
+          exit 1
+        fi
+        if ! echo "$TASK_POLL_INTERVAL" | grep -qE '^[0-9]+$'; then
+          echo "Error: task-poll-interval must be a non-negative integer"
+          exit 1
+        fi
 
         # Now safe to log
         echo "Deleting ZAD deployment: $DEPLOYMENT_NAME from project: $PROJECT_ID"
 
-        # Retry helper: curl_with_retry URL [curl_args...]
-        # Uses MAX_RETRIES and RETRY_DELAY from environment.
-        # Sets FINAL_HTTP_CODE and FINAL_BODY after completion.
-        curl_with_retry() {
-          local url="$1"; shift
-          local attempt=0
-          local delay="$RETRY_DELAY"
-          while true; do
-            local response
-            response=$(curl -s -w "\n%{http_code}" --max-time 60 "$@" "$url")
-            FINAL_HTTP_CODE=$(echo "$response" | tail -n1)
-            FINAL_BODY=$(echo "$response" | sed '$d')
+        # Load shared helpers (curl_with_retry, poll_task, build_poll_url)
+        # shellcheck source=../scripts/zad-common.sh
+        source "$GITHUB_ACTION_PATH/../scripts/zad-common.sh"
 
-            # Success
-            if [ "$FINAL_HTTP_CODE" -ge 200 ] && [ "$FINAL_HTTP_CODE" -lt 300 ]; then
-              return 0
-            fi
-
-            # Determine if retryable
-            local retryable=false
-            if [ "$FINAL_HTTP_CODE" -eq 000 ] || [ "$FINAL_HTTP_CODE" -eq 429 ]; then
-              retryable=true
-            elif [ "$FINAL_HTTP_CODE" -ge 500 ] && [ "$FINAL_HTTP_CODE" -le 504 ]; then
-              retryable=true
-            fi
-
-            if [ "$retryable" = "true" ] && [ "$attempt" -lt "$MAX_RETRIES" ]; then
-              attempt=$((attempt + 1))
-              echo "::warning::Transient error (HTTP $FINAL_HTTP_CODE), retrying in ${delay}s (attempt $attempt/$MAX_RETRIES)..."
-              sleep "$delay"
-              delay=$((delay * 2))
-              continue
-            fi
-
-            # Non-retryable or retries exhausted
-            return 1
-          done
-        }
-
-        if curl_with_retry "$API_BASE_URL/projects/$PROJECT_ID/$DEPLOYMENT_NAME" \
+        if curl_with_retry "$API_BASE_URL/v2/projects/$PROJECT_ID/$DEPLOYMENT_NAME" \
             -X DELETE \
             -H "X-API-Key: $ZAD_API_KEY"; then
-          echo "ZAD deployment deleted successfully (HTTP $FINAL_HTTP_CODE)"
-          echo "deleted=true" >> "$GITHUB_OUTPUT"
+
+          TASK_ID=$(echo "$FINAL_BODY" | jq -r '.task_id' 2>/dev/null)
+          POLL_URL=$(echo "$FINAL_BODY" | jq -r '.poll_url' 2>/dev/null)
+          echo "Delete task accepted (ID: $TASK_ID), polling for completion..."
+
+          FULL_POLL_URL=$(build_poll_url "$POLL_URL")
+
+          if poll_task "$FULL_POLL_URL"; then
+            echo "ZAD deployment deleted successfully"
+            echo "deleted=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::error::ZAD deployment delete task did not complete successfully"
+            echo "deleted=false" >> "$GITHUB_OUTPUT"
+          fi
         else
           if [ "$FINAL_HTTP_CODE" -eq 404 ]; then
             echo "ZAD deployment not found (already deleted?)"
@@ -385,22 +380,32 @@ runs:
         PR_NUMBER: ${{ github.event.pull_request.number }}
         GITHUB_REPOSITORY: ${{ github.repository }}
       run: |
-        # Find existing comment by header
-        COMMENT_ID=$(gh api "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" \
-          --jq ".[] | select(.body | startswith(\"${COMMENT_HEADER}\")) | .id" \
-          2>/dev/null | head -n1 || echo "")
+        # Find all comments matching the header (covers both multi-component
+        # single comment and multiple single-component comments)
+        COMMENT_IDS=$(gh api "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" \
+          --jq "[.[] | select(.body | startswith(\"${COMMENT_HEADER}\")) | .id]" \
+          2>/dev/null || echo "[]")
 
-        if [ -z "$COMMENT_ID" ]; then
-          echo "No existing deploy comment found with header: ${COMMENT_HEADER}"
+        COUNT=$(echo "$COMMENT_IDS" | jq 'length')
+        if [ "$COUNT" -eq 0 ]; then
+          echo "No existing deploy comment(s) found with header: ${COMMENT_HEADER}"
           echo "deleted=false" >> "$GITHUB_OUTPUT"
           exit 0
         fi
 
-        echo "Deleting PR comment (ID: $COMMENT_ID)"
-        if gh api "repos/${GITHUB_REPOSITORY}/issues/comments/${COMMENT_ID}" -X DELETE 2>/dev/null; then
-          echo "PR comment deleted successfully"
+        echo "Found $COUNT deploy comment(s) to delete"
+        DELETED=0
+        for COMMENT_ID in $(echo "$COMMENT_IDS" | jq -r '.[]'); do
+          echo "Deleting PR comment (ID: $COMMENT_ID)"
+          if gh api "repos/${GITHUB_REPOSITORY}/issues/comments/${COMMENT_ID}" -X DELETE 2>/dev/null; then
+            echo "PR comment deleted successfully"
+            DELETED=$((DELETED + 1))
+          else
+            echo "::warning::Failed to delete PR comment $COMMENT_ID"
+          fi
+        done
+        if [ "$DELETED" -gt 0 ]; then
           echo "deleted=true" >> "$GITHUB_OUTPUT"
         else
-          echo "::warning::Failed to delete PR comment"
           echo "deleted=false" >> "$GITHUB_OUTPUT"
         fi

@@ -62,6 +62,14 @@ inputs:
     description: 'ZAD Operations Manager API base URL'
     required: false
     default: 'https://operations-manager.rig.prd1.gn2.quattro.rijksapps.nl/api'
+  task-timeout:
+    description: 'Maximum time in seconds to wait for async task completion'
+    required: false
+    default: '300'
+  task-poll-interval:
+    description: 'Seconds between task status polls'
+    required: false
+    default: '3'
   max-retries:
     description: 'Maximum number of retries for transient ZAD API errors (0 to disable)'
     required: false
@@ -261,6 +269,8 @@ runs:
         MAX_RETRIES: ${{ inputs.max-retries }}
         RETRY_DELAY: ${{ inputs.retry-delay }}
         PR_NUMBER_PATTERN: ${{ inputs.pr-number-pattern }}
+        TASK_TIMEOUT: ${{ inputs.task-timeout }}
+        TASK_POLL_INTERVAL: ${{ inputs.task-poll-interval }}
       run: |
         # Validate inputs
         if ! echo "$PROJECT_ID" | grep -qE '^[a-zA-Z0-9._-]+$'; then
@@ -275,6 +285,14 @@ runs:
           echo "Error: retry-delay must be a non-negative integer"
           exit 1
         fi
+        if ! echo "$TASK_TIMEOUT" | grep -qE '^[0-9]+$'; then
+          echo "Error: task-timeout must be a non-negative integer"
+          exit 1
+        fi
+        if ! echo "$TASK_POLL_INTERVAL" | grep -qE '^[0-9]+$'; then
+          echo "Error: task-poll-interval must be a non-negative integer"
+          exit 1
+        fi
         # Re-validate pr-number-pattern (defense-in-depth, also validated in find-stale step)
         if ! echo "$PR_NUMBER_PATTERN" | grep -qE '^s/'; then
           echo "Error: pr-number-pattern must be a sed substitution expression (starting with 's/')"
@@ -285,44 +303,9 @@ runs:
           exit 1
         fi
 
-        # Retry helper: curl_with_retry URL [curl_args...]
-        # Uses MAX_RETRIES and RETRY_DELAY from environment.
-        # Sets FINAL_HTTP_CODE and FINAL_BODY after completion.
-        curl_with_retry() {
-          local url="$1"; shift
-          local attempt=0
-          local delay="$RETRY_DELAY"
-          while true; do
-            local response
-            response=$(curl -s -w "\n%{http_code}" --max-time 60 "$@" "$url")
-            FINAL_HTTP_CODE=$(echo "$response" | tail -n1)
-            FINAL_BODY=$(echo "$response" | sed '$d')
-
-            # Success
-            if [ "$FINAL_HTTP_CODE" -ge 200 ] && [ "$FINAL_HTTP_CODE" -lt 300 ]; then
-              return 0
-            fi
-
-            # Determine if retryable
-            local retryable=false
-            if [ "$FINAL_HTTP_CODE" -eq 000 ] || [ "$FINAL_HTTP_CODE" -eq 429 ]; then
-              retryable=true
-            elif [ "$FINAL_HTTP_CODE" -ge 500 ] && [ "$FINAL_HTTP_CODE" -le 504 ]; then
-              retryable=true
-            fi
-
-            if [ "$retryable" = "true" ] && [ "$attempt" -lt "$MAX_RETRIES" ]; then
-              attempt=$((attempt + 1))
-              echo "::warning::Transient error (HTTP $FINAL_HTTP_CODE), retrying in ${delay}s (attempt $attempt/$MAX_RETRIES)..."
-              sleep "$delay"
-              delay=$((delay * 2))
-              continue
-            fi
-
-            # Non-retryable or retries exhausted
-            return 1
-          done
-        }
+        # Load shared helpers (curl_with_retry, poll_task, build_poll_url)
+        # shellcheck source=../scripts/zad-common.sh
+        source "$GITHUB_ACTION_PATH/../scripts/zad-common.sh"
 
         CLEANED=0
 
@@ -343,11 +326,22 @@ runs:
           echo "--- Cleaning up: $ENV_NAME ---"
           ENV_SUCCESS=true
 
-          # 1. Delete ZAD deployment (with retry)
-          if curl_with_retry "$API_BASE_URL/projects/$PROJECT_ID/$ENV_NAME" \
+          # 1. Delete ZAD deployment (V2 async with retry)
+          if curl_with_retry "$API_BASE_URL/v2/projects/$PROJECT_ID/$ENV_NAME" \
               -X DELETE \
               -H "X-API-Key: $ZAD_API_KEY"; then
-            echo "ZAD deployment '$ENV_NAME' deleted"
+            TASK_ID=$(echo "$FINAL_BODY" | jq -r '.task_id' 2>/dev/null)
+            POLL_URL=$(echo "$FINAL_BODY" | jq -r '.poll_url' 2>/dev/null)
+            echo "Delete task accepted for '$ENV_NAME' (ID: $TASK_ID)"
+
+            FULL_POLL_URL=$(build_poll_url "$POLL_URL")
+
+            if poll_task "$FULL_POLL_URL"; then
+              echo "ZAD deployment '$ENV_NAME' deleted"
+            else
+              echo "::error::Delete task for '$ENV_NAME' did not complete successfully"
+              ENV_SUCCESS=false
+            fi
           elif [ "$FINAL_HTTP_CODE" -eq 404 ]; then
             echo "ZAD deployment '$ENV_NAME' not found (already deleted)"
             ENV_SUCCESS=false

@@ -24,13 +24,13 @@ Generate a complete GitHub Actions workflow for a repository that uses zad-actio
 /generate-workflow
 ```
 
-Or with arguments: `/generate-workflow project-id=my-project component=web`
+Or with arguments: `/generate-workflow project-id=my-project component=web` or `/generate-workflow project-id=my-project multi-component`
 
 ## Steps
 
 1. **Gather project details.** Ask the user for (or accept as arguments):
    - `project-id` (required): ZAD project identifier (e.g., `regel-k4c`)
-   - `component` (required): Component reference (e.g., `web`, `api`, `editor`)
+   - `component` (required unless `multi-component` enabled): Component reference (e.g., `web`, `api`, `editor`)
    - `container-registry` (optional, default: `ghcr.io`): Container registry to use
    - `image-name` (optional, default: `${{ github.repository }}`): Docker image name
    - Features to enable (ask the user):
@@ -40,6 +40,7 @@ Or with arguments: `/generate-workflow project-id=my-project component=web`
      - `clone-from` — clone config from existing deployment (e.g., `production`)
      - `path-suffix` — append a path to the deployment URL (e.g., `/docs/`)
      - `production-deploy` — add production deploy job on push to main
+     - `multi-component` — deploy multiple components in a single atomic API call (uses `components` JSON input instead of `component`/`image`)
 
    - `scheduled-cleanup` — add a weekly scheduled cleanup job for stale PR environments
 
@@ -95,14 +96,44 @@ jobs:
     steps:
       - name: Deploy to ZAD
         id: deploy
-        uses: RijksICTGilde/zad-actions/deploy@v2
+        uses: RijksICTGilde/zad-actions/deploy@v3
         with:
           api-key: ${{ secrets.ZAD_API_KEY }}
           project-id: <project-id>
           deployment-name: pr-${{ github.event.pull_request.number }}
           component: <component>
           image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:pr-${{ github.event.number }}
+```
 
+   If `multi-component` is enabled, replace the `component`/`image` inputs in the deploy step with `components`:
+
+```yaml
+  deploy-preview:
+    if: github.event_name == 'pull_request' && github.event.action != 'closed'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write  # if comment-on-pr
+    environment:
+      name: pr-${{ github.event.pull_request.number }}
+      url: ${{ steps.deploy.outputs.url }}  # first component's URL
+    steps:
+      - name: Deploy to ZAD
+        id: deploy
+        uses: RijksICTGilde/zad-actions/deploy@v3
+        with:
+          api-key: ${{ secrets.ZAD_API_KEY }}
+          project-id: <project-id>
+          deployment-name: pr-${{ github.event.pull_request.number }}
+          components: |
+            [
+              {"name": "<component-1>", "image": "${{ env.REGISTRY }}/<image-1>:pr-${{ github.event.number }}"},
+              {"name": "<component-2>", "image": "${{ env.REGISTRY }}/<image-2>:pr-${{ github.event.number }}"}
+            ]
+```
+
+```yaml
   cleanup-preview:
     if: github.event_name == 'pull_request' && github.event.action == 'closed'
     runs-on: ubuntu-latest
@@ -112,7 +143,7 @@ jobs:
       pull-requests: write
     steps:
       - name: Cleanup
-        uses: RijksICTGilde/zad-actions/cleanup@v2
+        uses: RijksICTGilde/zad-actions/cleanup@v3
         with:
           api-key: ${{ secrets.ZAD_API_KEY }}
           project-id: <project-id>
@@ -137,7 +168,7 @@ jobs:
       packages: write
       pull-requests: read
     steps:
-      - uses: RijksICTGilde/zad-actions/scheduled-cleanup@v2
+      - uses: RijksICTGilde/zad-actions/scheduled-cleanup@v3
         with:
           api-key: ${{ secrets.ZAD_API_KEY }}
           project-id: <project-id>
@@ -162,7 +193,7 @@ jobs:
 
 ## Important notes
 
-- Always use `@v2` for zad-actions references (current major version)
+- Always use `@v3` for zad-actions references (current major version)
 - The `github-token` input defaults to `${{ github.token }}` so it doesn't need to be passed explicitly
 - `pull-requests: write` permission is needed for `comment-on-pr` and `delete-pr-comment`
 - `packages: delete` permission is needed for container deletion (note: different from `packages: write`)

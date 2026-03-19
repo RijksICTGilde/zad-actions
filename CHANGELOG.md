@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## [3.1.0] - 2026-03-19
+
 ### Added
 - **cleanup**: Multi-container deletion support
   - New `containers` input: JSON array of `[{"org": "...", "name": "...", "tag": "..."}]`
@@ -226,6 +228,7 @@ If you use the cleanup action with `update-pr-comment`, update your workflow:
 - Secure handling of API keys via environment variables
 - Dangerous character detection for container inputs
 
+[3.1.0]: https://github.com/RijksICTGilde/zad-actions/releases/tag/v3.1.0
 [3.0.0]: https://github.com/RijksICTGilde/zad-actions/releases/tag/v3.0.0
 [2.4.0]: https://github.com/RijksICTGilde/zad-actions/releases/tag/v2.4.0
 [2.3.0]: https://github.com/RijksICTGilde/zad-actions/releases/tag/v2.3.0

@@ -15,6 +15,7 @@ Removes a ZAD deployment and optionally cleans up associated GitHub resources (e
 | `container-org` | No | `''` | Organization owning the container (for image deletion) |
 | `container-name` | No | `''` | Container package name (for image deletion) |
 | `container-tag` | No | `''` | Container tag to delete (for image deletion) |
+| `containers` | No | `''` | JSON array of containers to delete: `[{"org": "...", "name": "...", "tag": "..."}]`. Takes precedence over `container-org`/`container-name`/`container-tag`. |
 | `github-token` | No | `github.token` | GitHub token for deployments/containers/PR (defaults to automatic token) |
 | `github-admin-token` | No | `''` | GitHub token for environment deletion (needs repo admin permission) |
 | `api-base-url` | No | `https://operations-manager.rig.prd1.gn2.quattro.rijksapps.nl/api` | ZAD Operations Manager API base URL |
@@ -66,6 +67,23 @@ Removes a ZAD deployment and optionally cleans up associated GitHub resources (e
     container-name: regelrecht-mvp
     container-tag: pr-${{ github.event.number }}
     github-admin-token: ${{ secrets.GITHUB_ADMIN_TOKEN }}
+```
+
+### Full Cleanup (Multi-Container)
+
+```yaml
+- name: Full cleanup
+  uses: RijksICTGilde/zad-actions/cleanup@v3
+  with:
+    api-key: ${{ secrets.ZAD_API_KEY }}
+    project-id: my-project
+    deployment-name: pr${{ github.event.pull_request.number }}
+    delete-container: true
+    containers: |
+      [
+        {"org": "my-org", "name": "frontend", "tag": "pr-${{ github.event.number }}"},
+        {"org": "my-org", "name": "api", "tag": "pr-${{ github.event.number }}"}
+      ]
 ```
 
 ### PR Closed Cleanup Workflow

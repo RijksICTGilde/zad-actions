@@ -65,6 +65,23 @@ Reusable GitHub Actions for deploying to [ZAD](https://github.com/RijksICTGilde/
     github-admin-token: ${{ secrets.GITHUB_ADMIN_TOKEN }}
 ```
 
+### Cleanup (Multi-Container)
+
+```yaml
+- name: Cleanup ZAD deployment
+  uses: RijksICTGilde/zad-actions/cleanup@v3
+  with:
+    api-key: ${{ secrets.ZAD_API_KEY }}
+    project-id: my-project
+    deployment-name: my-deployment
+    delete-container: true
+    containers: |
+      [
+        {"org": "my-org", "name": "frontend", "tag": "pr-123"},
+        {"org": "my-org", "name": "api", "tag": "pr-123"}
+      ]
+```
+
 ### Scheduled Cleanup
 
 ```yaml

@@ -79,7 +79,13 @@ All three actions retry transient ZAD API errors (000, 429, 500-504) with expone
 | Symptom | Diagnosis | Fix |
 |---------|-----------|-----|
 | Can't delete container | Missing permission | The token needs `packages:delete` scope. For org packages, the token user must have admin access to the package |
-| Container not found | Wrong org/name/tag | Verify `container-org`, `container-name`, and `container-tag` match exactly. Tag format is typically `pr-<number>` |
+| Container not found | Wrong org/name/tag | Verify `container-org`/`container-name`/`container-tag` (or `containers` JSON entries) match exactly. Tag format is typically `pr-<number>` |
+| `Error: containers input is not valid JSON` | `containers` value is malformed JSON | Verify JSON syntax. Use YAML multi-line `\|` for readability. Validate with `echo '<json>' \| jq .` |
+| `Error: containers array must contain at least one entry` | Empty array `[]` passed | Provide at least one `{"org": "...", "name": "...", "tag": "..."}` entry |
+| `Error: each container must have non-empty 'org', 'name', and 'tag'` | Missing or empty fields in an array entry | Ensure every object has `org`, `name`, and `tag` keys with non-empty values |
+| `Error: container org(s) contain invalid characters` | Org name has characters outside `a-zA-Z0-9._-` | Use only alphanumeric characters, dots, underscores, and hyphens |
+| `Error: container name(s) contain invalid characters` | Container name has characters outside `a-zA-Z0-9._-` | Same character restrictions as org |
+| `Error: container tag(s) contain dangerous characters` | Tag contains quotes, backticks, or backslashes | Remove these characters from the tag |
 
 ### PR comment errors
 

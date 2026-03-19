@@ -7,17 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## [3.0.0] - 2026-03-19
+
 ### Changed
+- **BREAKING**: Migrate from synchronous V1 API to async V2 API
+  - Deploy, cleanup, and scheduled-cleanup now use `/api/v2/` endpoints
+  - Operations return a task ID immediately (HTTP 202) and are polled until completion
+  - Task progress (percentage, current step) is logged during polling
+  - Users must update from `@v2` to `@v3` to use this version
 - **all actions**: Extract `curl_with_retry`, `poll_task`, and `build_poll_url` to shared `scripts/zad-common.sh`
 - **all actions**: Poll URL construction now handles absolute URLs from the API (not just relative paths)
 - **cleanup, scheduled-cleanup**: Failed delete tasks now log `::error::` instead of `::warning::` (consistent with deploy)
 
-### Fixed
-- **deploy**: PR comment URL parsing now uses tab delimiter instead of `=`, preventing breakage when URLs contain query parameters
-- **all actions**: `poll_task()` now fails fast on 4xx HTTP errors instead of retrying until timeout
-- **scheduled-cleanup**: Added missing validation for `task-timeout` and `task-poll-interval` inputs
-
 ### Added
+- **all actions**: New `task-timeout` input (default: `300`s) — maximum wait for async task completion
+- **all actions**: New `task-poll-interval` input (default: `3`s) — interval between task status polls
 - **deploy** action: Multi-component deployment support
   - New `components` input: JSON array of `[{"name": "...", "image": "..."}]`
   - Deploys all components in a single API call
@@ -27,18 +31,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - PR comment combines all component URLs into a single comment
   - `component` and `image` inputs are now optional (at least one approach must be provided)
 
-## [3.0.0] - 2026-03-11
-
-### Changed
-- **BREAKING**: Migrate from synchronous V1 API to async V2 API
-  - Deploy, cleanup, and scheduled-cleanup now use `/api/v2/` endpoints
-  - Operations return a task ID immediately (HTTP 202) and are polled until completion
-  - Task progress (percentage, current step) is logged during polling
-  - Users must update from `@v2` to `@v3` to use this version
-
-### Added
-- **all actions**: New `task-timeout` input (default: `300`s) — maximum wait for async task completion
-- **all actions**: New `task-poll-interval` input (default: `3`s) — interval between task status polls
+### Fixed
+- **deploy**: PR comment URL parsing now uses tab delimiter instead of `=`, preventing breakage when URLs contain query parameters
+- **all actions**: `poll_task()` now fails fast on 4xx HTTP errors instead of retrying until timeout
+- **scheduled-cleanup**: Added missing validation for `task-timeout` and `task-poll-interval` inputs
 
 ## [2.4.0] - 2026-03-03
 
@@ -219,6 +215,7 @@ If you use the cleanup action with `update-pr-comment`, update your workflow:
 - Secure handling of API keys via environment variables
 - Dangerous character detection for container inputs
 
+[3.0.0]: https://github.com/RijksICTGilde/zad-actions/releases/tag/v3.0.0
 [2.4.0]: https://github.com/RijksICTGilde/zad-actions/releases/tag/v2.4.0
 [2.3.0]: https://github.com/RijksICTGilde/zad-actions/releases/tag/v2.3.0
 [2.2.1]: https://github.com/RijksICTGilde/zad-actions/releases/tag/v2.2.1

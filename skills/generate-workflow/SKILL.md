@@ -133,6 +133,36 @@ jobs:
             ]
 ```
 
+   If `multi-component` is enabled, use the `containers` JSON input in the cleanup step instead of `container-org`/`container-name`/`container-tag`:
+
+```yaml
+  cleanup-preview:
+    if: github.event_name == 'pull_request' && github.event.action == 'closed'
+    runs-on: ubuntu-latest
+    permissions:
+      deployments: write
+      packages: write
+      pull-requests: write
+    steps:
+      - name: Cleanup
+        uses: RijksICTGilde/zad-actions/cleanup@v3
+        with:
+          api-key: ${{ secrets.ZAD_API_KEY }}
+          project-id: <project-id>
+          deployment-name: pr-${{ github.event.pull_request.number }}
+          delete-github-env: 'true'
+          delete-github-deployments: 'true'
+          delete-container: 'true'
+          containers: |
+            [
+              {"org": "${{ github.repository_owner }}", "name": "<image-1>", "tag": "pr-${{ github.event.number }}"},
+              {"org": "${{ github.repository_owner }}", "name": "<image-2>", "tag": "pr-${{ github.event.number }}"}
+            ]
+          github-admin-token: ${{ secrets.GITHUB_ADMIN_TOKEN }}
+```
+
+   For single-component, use the individual `container-org`/`container-name`/`container-tag` inputs instead:
+
 ```yaml
   cleanup-preview:
     if: github.event_name == 'pull_request' && github.event.action == 'closed'

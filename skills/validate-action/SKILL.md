@@ -50,7 +50,8 @@ Read `<action>/action.yml` and verify:
   - A step with `id: X` that exists in the action
   - An output `Y` that the step actually sets (via `>> "$GITHUB_OUTPUT"`)
 - **Output values:** Every output `value: ${{ steps.X.outputs.Y }}` must reference a valid step ID and output name
-- **Mutual exclusion:** The `components` input takes precedence over `component`/`image`. Validate that the bash script handles both modes: `COMPONENTS` non-empty triggers multi-component path; otherwise `COMPONENT` + `IMAGE` are required. Verify the `urls` output is only set in multi-component mode and `url` is set in both modes
+- **Mutual exclusion (deploy):** The `components` input takes precedence over `component`/`image`. Validate that the bash script handles both modes: `COMPONENTS` non-empty triggers multi-component path; otherwise `COMPONENT` + `IMAGE` are required. Verify the `urls` output is only set in multi-component mode and `url` is set in both modes
+- **Mutual exclusion (cleanup):** The `containers` input takes precedence over `container-org`/`container-name`/`container-tag`. Validate the step's `if` condition allows either mode. Verify the bash script builds a unified container list from either input source
 
 ### 3. Security validation
 

@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added
+- **cleanup**: Multi-container deletion support
+  - New `containers` input: JSON array of `[{"org": "...", "name": "...", "tag": "..."}]`
+  - Deletes all container images in a single cleanup call
+  - When set, `container-org`/`container-name`/`container-tag` inputs are ignored
+  - Best-effort: each container deletion is independent
+  - Backward compatible: existing single-container inputs continue to work
+
 ### Fixed
 - **deploy**: Fix multi-component `urls` output writing multi-line JSON to `GITHUB_OUTPUT` — use `jq -c` for compact single-line output
 

@@ -41,6 +41,10 @@ inputs:
     description: 'Container tag to delete (for image deletion)'
     required: false
     default: ''
+  containers:
+    description: 'JSON array of containers to delete: [{"org": "...", "name": "...", "tag": "..."}]. Takes precedence over container-org/container-name/container-tag.'
+    required: false
+    default: ''
   github-token:
     description: 'GitHub token for deployment/PR operations (defaults to automatic token)'
     required: false
@@ -301,74 +305,113 @@ runs:
 
     - name: Delete Container Image
       id: delete-container
-      if: steps.bot-check.outputs.skipped != 'true' && inputs.delete-container == 'true' && inputs.container-org != '' && inputs.container-name != '' && inputs.container-tag != ''
+      if: steps.bot-check.outputs.skipped != 'true' && inputs.delete-container == 'true' && (inputs.containers != '' || (inputs.container-org != '' && inputs.container-name != '' && inputs.container-tag != ''))
       shell: bash
       env:
         GH_TOKEN: ${{ inputs.github-token }}
         CONTAINER_ORG: ${{ inputs.container-org }}
         CONTAINER_NAME: ${{ inputs.container-name }}
         CONTAINER_TAG: ${{ inputs.container-tag }}
+        CONTAINERS: ${{ inputs.containers }}
       run: |
-        # Validate container inputs FIRST (before using in API calls)
-        if ! echo "$CONTAINER_ORG" | grep -qE '^[a-zA-Z0-9._-]+$'; then
-          echo "Error: container-org contains invalid characters (allowed: a-z, A-Z, 0-9, ., _, -)"
-          exit 1
-        fi
-        if ! echo "$CONTAINER_NAME" | grep -qE '^[a-zA-Z0-9._-]+$'; then
-          echo "Error: container-name contains invalid characters (allowed: a-z, A-Z, 0-9, ., _, -)"
-          exit 1
-        fi
-        # Container tags can have more characters but NOT quotes or backticks
-        if echo "$CONTAINER_TAG" | grep -qE '["`'\''\\]'; then
-          echo "Error: container-tag contains dangerous characters (quotes, backticks, backslashes not allowed)"
-          exit 1
-        fi
-
-        echo "Deleting container image: ghcr.io/$CONTAINER_ORG/$CONTAINER_NAME:$CONTAINER_TAG"
-
-        # Get all versions of the package and filter by tag using jq safely
-        # Use jq --arg to safely pass the tag value
-        VERSIONS=$(gh api "orgs/$CONTAINER_ORG/packages/container/$CONTAINER_NAME/versions" 2>/dev/null | \
-          jq -r --arg tag "$CONTAINER_TAG" '.[] | select(.metadata.container.tags | index($tag)) | .id' 2>/dev/null || echo "")
-
-        if [ -z "$VERSIONS" ]; then
-          echo "Container image not found or no matching tag"
-          echo "deleted=false" >> "$GITHUB_OUTPUT"
-          exit 0
-        fi
-
-        DELETED=false
-        for VERSION_ID in $VERSIONS; do
-          echo "Deleting version: $VERSION_ID"
-
-          # Capture both stdout and stderr to detect "last tagged version" error
-          DELETE_OUTPUT=$(gh api "orgs/$CONTAINER_ORG/packages/container/$CONTAINER_NAME/versions/$VERSION_ID" -X DELETE 2>&1)
-          DELETE_RESULT=$?
-
-          if [ $DELETE_RESULT -eq 0 ]; then
-            echo "Deleted container version: $VERSION_ID"
-            DELETED=true
-          else
-            echo "$DELETE_OUTPUT"
-
-            # Check if this is the "last tagged version" error
-            if echo "$DELETE_OUTPUT" | grep -q "You cannot delete the last tagged version"; then
-              echo "This is the last tagged version. Deleting entire package instead..."
-
-              # Delete the entire package
-              if gh api "orgs/$CONTAINER_ORG/packages/container/$CONTAINER_NAME" -X DELETE 2>&1; then
-                echo "Successfully deleted entire package: $CONTAINER_NAME"
-                DELETED=true
-              else
-                echo "::warning::Failed to delete entire package: $CONTAINER_NAME"
-              fi
-            else
-              echo "Failed to delete version: $VERSION_ID"
-            fi
+        # Build unified container list (JSON array)
+        if [ -n "$CONTAINERS" ]; then
+          # Multi-container mode: validate JSON
+          if ! echo "$CONTAINERS" | jq empty 2>/dev/null; then
+            echo "Error: containers input is not valid JSON"
+            exit 1
           fi
+
+          CONTAINER_COUNT=$(echo "$CONTAINERS" | jq 'length')
+          if [ "$CONTAINER_COUNT" -eq 0 ]; then
+            echo "Error: containers array must contain at least one entry"
+            exit 1
+          fi
+
+          # Validate each entry has org, name, and tag
+          INVALID=$(echo "$CONTAINERS" | jq -r '.[] | select(.org == null or .org == "" or .name == null or .name == "" or .tag == null or .tag == "") | "missing org, name, or tag"' | head -n1)
+          if [ -n "$INVALID" ]; then
+            echo "Error: each container must have non-empty 'org', 'name', and 'tag'"
+            exit 1
+          fi
+
+          CONTAINER_LIST="$CONTAINERS"
+        else
+          # Single-container mode: build JSON array from individual inputs
+          CONTAINER_LIST=$(jq -n --arg org "$CONTAINER_ORG" --arg name "$CONTAINER_NAME" --arg tag "$CONTAINER_TAG" \
+            '[{org: $org, name: $name, tag: $tag}]')
+        fi
+
+        # Validate all entries
+        BAD_ORGS=$(echo "$CONTAINER_LIST" | jq -r '.[].org' | grep -vE '^[a-zA-Z0-9._-]+$' || true)
+        if [ -n "$BAD_ORGS" ]; then
+          echo "Error: container org(s) contain invalid characters (allowed: a-z, A-Z, 0-9, ., _, -)"
+          exit 1
+        fi
+        BAD_NAMES=$(echo "$CONTAINER_LIST" | jq -r '.[].name' | grep -vE '^[a-zA-Z0-9._-]+$' || true)
+        if [ -n "$BAD_NAMES" ]; then
+          echo "Error: container name(s) contain invalid characters (allowed: a-z, A-Z, 0-9, ., _, -)"
+          exit 1
+        fi
+        # Container tags: check for dangerous characters (quotes, backticks, backslashes)
+        BAD_TAGS=$(echo "$CONTAINER_LIST" | jq -r '.[].tag' | grep -E '["`'\''\\]' || true)
+        if [ -n "$BAD_TAGS" ]; then
+          echo "Error: container tag(s) contain dangerous characters (quotes, backticks, backslashes not allowed)"
+          exit 1
+        fi
+
+        # Process each container (best-effort: one failure does not stop others)
+        ANY_DELETED=false
+        ENTRY_COUNT=$(echo "$CONTAINER_LIST" | jq 'length')
+
+        for i in $(seq 0 $((ENTRY_COUNT - 1))); do
+          C_ORG=$(echo "$CONTAINER_LIST" | jq -r ".[$i].org")
+          C_NAME=$(echo "$CONTAINER_LIST" | jq -r ".[$i].name")
+          C_TAG=$(echo "$CONTAINER_LIST" | jq -r ".[$i].tag")
+
+          echo "Deleting container image: ghcr.io/$C_ORG/$C_NAME:$C_TAG"
+
+          # Get all versions of the package and filter by tag using jq safely
+          VERSIONS=$(gh api "orgs/$C_ORG/packages/container/$C_NAME/versions" 2>/dev/null | \
+            jq -r --arg tag "$C_TAG" '.[] | select(.metadata.container.tags | index($tag)) | .id' 2>/dev/null || echo "")
+
+          if [ -z "$VERSIONS" ]; then
+            echo "Container image not found or no matching tag: ghcr.io/$C_ORG/$C_NAME:$C_TAG"
+            continue
+          fi
+
+          for VERSION_ID in $VERSIONS; do
+            echo "Deleting version: $VERSION_ID"
+
+            # Capture both stdout and stderr to detect "last tagged version" error
+            DELETE_OUTPUT=$(gh api "orgs/$C_ORG/packages/container/$C_NAME/versions/$VERSION_ID" -X DELETE 2>&1)
+            DELETE_RESULT=$?
+
+            if [ $DELETE_RESULT -eq 0 ]; then
+              echo "Deleted container version: $VERSION_ID"
+              ANY_DELETED=true
+            else
+              echo "$DELETE_OUTPUT"
+
+              # Check if this is the "last tagged version" error
+              if echo "$DELETE_OUTPUT" | grep -q "You cannot delete the last tagged version"; then
+                echo "This is the last tagged version. Deleting entire package instead..."
+
+                # Delete the entire package
+                if gh api "orgs/$C_ORG/packages/container/$C_NAME" -X DELETE 2>&1; then
+                  echo "Successfully deleted entire package: $C_NAME"
+                  ANY_DELETED=true
+                else
+                  echo "::warning::Failed to delete entire package: $C_NAME"
+                fi
+              else
+                echo "::warning::Failed to delete version: $VERSION_ID for ghcr.io/$C_ORG/$C_NAME:$C_TAG"
+              fi
+            fi
+          done
         done
 
-        echo "deleted=$DELETED" >> "$GITHUB_OUTPUT"
+        echo "deleted=$ANY_DELETED" >> "$GITHUB_OUTPUT"
 
     - name: Delete PR Comment
       id: delete-pr-comment

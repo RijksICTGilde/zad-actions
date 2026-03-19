@@ -305,15 +305,15 @@ runs:
 
             if [ "$MULTI_COMPONENT" = "true" ]; then
               # Multi-component: extract all URLs and build urls output
-              ALL_URLS=$(echo "$TASK_RESULT" | jq -r ".result.urls.\"${DEPLOYMENT_NAME}\".urls // {}" 2>/dev/null)
+              ALL_URLS=$(echo "$TASK_RESULT" | jq -c ".result.urls.\"${DEPLOYMENT_NAME}\".urls // {}" 2>/dev/null)
               if [ -z "$ALL_URLS" ] || [ "$ALL_URLS" = "{}" ] || [ "$ALL_URLS" = "null" ]; then
                 # Fallback: construct URLs for each component
                 echo "::warning::Could not extract URLs from task result, using constructed URLs"
-                ALL_URLS=$(echo "$COMPONENTS" | jq -r --arg dep "$DEPLOYMENT_NAME" --arg proj "$PROJECT_ID" \
+                ALL_URLS=$(echo "$COMPONENTS" | jq -c --arg dep "$DEPLOYMENT_NAME" --arg proj "$PROJECT_ID" \
                   '[.[] | {(.name): "https://\(.name)-\($dep)-\($proj).rig.prd1.gn2.quattro.rijksapps.nl"}] | add')
               fi
               if [ -n "$PATH_SUFFIX" ]; then
-                ALL_URLS=$(echo "$ALL_URLS" | jq --arg suffix "/${PATH_SUFFIX#/}" \
+                ALL_URLS=$(echo "$ALL_URLS" | jq -c --arg suffix "/${PATH_SUFFIX#/}" \
                   'to_entries | map(.value = (.value | rtrimstr("/")) + $suffix) | from_entries')
               fi
               echo "urls=$ALL_URLS" >> "$GITHUB_OUTPUT"

@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Fixed
+- **deploy**: Fix multi-component `urls` output writing multi-line JSON to `GITHUB_OUTPUT` — use `jq -c` for compact single-line output
+
 ## [3.0.0] - 2026-03-19
 
 ### Changed

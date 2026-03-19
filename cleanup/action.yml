@@ -42,7 +42,10 @@ inputs:
     required: false
     default: ''
   containers:
-    description: 'JSON array of containers to delete: [{"org": "...", "name": "...", "tag": "..."}]. Takes precedence over container-org/container-name/container-tag.'
+    description: >-
+      JSON array of containers to delete:
+      [{"org": "...", "name": "...", "tag": "..."}].
+      Takes precedence over container-org/container-name/container-tag.
     required: false
     default: ''
   github-token:
@@ -305,7 +308,13 @@ runs:
 
     - name: Delete Container Image
       id: delete-container
-      if: steps.bot-check.outputs.skipped != 'true' && inputs.delete-container == 'true' && (inputs.containers != '' || (inputs.container-org != '' && inputs.container-name != '' && inputs.container-tag != ''))
+      if: >-
+        steps.bot-check.outputs.skipped != 'true'
+        && inputs.delete-container == 'true'
+        && (inputs.containers != ''
+        || (inputs.container-org != ''
+        && inputs.container-name != ''
+        && inputs.container-tag != ''))
       shell: bash
       env:
         GH_TOKEN: ${{ inputs.github-token }}
@@ -329,7 +338,11 @@ runs:
           fi
 
           # Validate each entry has org, name, and tag
-          INVALID=$(echo "$CONTAINERS" | jq -r '.[] | select(.org == null or .org == "" or .name == null or .name == "" or .tag == null or .tag == "") | "missing org, name, or tag"' | head -n1)
+          INVALID=$(echo "$CONTAINERS" | jq -r \
+            '.[] | select(.org == null or .org == ""
+            or .name == null or .name == ""
+            or .tag == null or .tag == "")
+            | "missing org, name, or tag"' | head -n1)
           if [ -n "$INVALID" ]; then
             echo "Error: each container must have non-empty 'org', 'name', and 'tag'"
             exit 1

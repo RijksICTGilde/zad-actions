@@ -3,3 +3,5 @@
 
 # Local settings (never commit)
 *.local.*
+
+# IDE (use ~/.gitignore_global for editor-specific ignores)

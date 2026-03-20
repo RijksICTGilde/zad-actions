@@ -97,6 +97,18 @@ inputs:
     description: 'Path to append to the deployment URL (e.g. /docs/)'
     required: false
     default: ''
+  domain-format:
+    description: 'URL format template ID for hostname generation (e.g., component-deployment-subdomain, deployment.project)'
+    required: false
+    default: ''
+  subdomain:
+    description: 'Subdomain for URL generation. Required when domain-format contains "subdomain". Must be a valid DNS label.'
+    required: false
+    default: ''
+  base-domain:
+    description: 'Base domain for URL generation (e.g., rijksapp.nl). Must be a cluster-supported domain.'
+    required: false
+    default: ''
 
 outputs:
   url:
@@ -154,6 +166,9 @@ runs:
         PATH_SUFFIX: ${{ inputs.path-suffix }}
         TASK_TIMEOUT: ${{ inputs.task-timeout }}
         TASK_POLL_INTERVAL: ${{ inputs.task-poll-interval }}
+        DOMAIN_FORMAT: ${{ inputs.domain-format }}
+        SUBDOMAIN: ${{ inputs.subdomain }}
+        BASE_DOMAIN: ${{ inputs.base-domain }}
       run: |
         # Validate inputs FIRST (before logging)
         # Allow alphanumeric, hyphens, underscores, and dots
@@ -183,6 +198,22 @@ runs:
         fi
         if ! echo "$TASK_POLL_INTERVAL" | grep -qE '^[0-9]+$'; then
           echo "Error: task-poll-interval must be a non-negative integer"
+          exit 1
+        fi
+        if [ -n "$DOMAIN_FORMAT" ] && ! echo "$DOMAIN_FORMAT" | grep -qE '^[a-zA-Z0-9._-]+$'; then
+          echo "Error: domain-format contains invalid characters (allowed: a-z, A-Z, 0-9, ., _, -)"
+          exit 1
+        fi
+        if [ -n "$SUBDOMAIN" ] && ! echo "$SUBDOMAIN" | grep -qE '^[a-zA-Z0-9._-]+$'; then
+          echo "Error: subdomain contains invalid characters (allowed: a-z, A-Z, 0-9, ., _, -)"
+          exit 1
+        fi
+        if [ -n "$BASE_DOMAIN" ] && ! echo "$BASE_DOMAIN" | grep -qE '^[a-zA-Z0-9._-]+$'; then
+          echo "Error: base-domain contains invalid characters (allowed: a-z, A-Z, 0-9, ., _, -)"
+          exit 1
+        fi
+        if [ -n "$DOMAIN_FORMAT" ] && echo "$DOMAIN_FORMAT" | grep -q "subdomain" && [ -z "$SUBDOMAIN" ]; then
+          echo "Error: subdomain is required when domain-format contains 'subdomain'"
           exit 1
         fi
 
@@ -281,6 +312,17 @@ runs:
             }')
         fi
 
+        # Add optional domain fields when set
+        if [ -n "$DOMAIN_FORMAT" ]; then
+          PAYLOAD=$(echo "$PAYLOAD" | jq --arg df "$DOMAIN_FORMAT" '. + {domain_format: $df}')
+        fi
+        if [ -n "$SUBDOMAIN" ]; then
+          PAYLOAD=$(echo "$PAYLOAD" | jq --arg sd "$SUBDOMAIN" '. + {subdomain: $sd}')
+        fi
+        if [ -n "$BASE_DOMAIN" ]; then
+          PAYLOAD=$(echo "$PAYLOAD" | jq --arg bd "$BASE_DOMAIN" '. + {base_domain: $bd}')
+        fi
+
         # Load shared helpers (curl_with_retry, poll_task, build_poll_url)
         # shellcheck source=../scripts/zad-common.sh
         source "$GITHUB_ACTION_PATH/../scripts/zad-common.sh"
@@ -307,10 +349,9 @@ runs:
               # Multi-component: extract all URLs and build urls output
               ALL_URLS=$(echo "$TASK_RESULT" | jq -c ".result.urls.\"${DEPLOYMENT_NAME}\".urls // {}" 2>/dev/null)
               if [ -z "$ALL_URLS" ] || [ "$ALL_URLS" = "{}" ] || [ "$ALL_URLS" = "null" ]; then
-                # Fallback: construct URLs for each component
-                echo "::warning::Could not extract URLs from task result, using constructed URLs"
-                ALL_URLS=$(echo "$COMPONENTS" | jq -c --arg dep "$DEPLOYMENT_NAME" --arg proj "$PROJECT_ID" \
-                  '[.[] | {(.name): "https://\(.name)-\($dep)-\($proj).rig.prd1.gn2.quattro.rijksapps.nl"}] | add')
+                echo "::error::Could not extract URLs from task result"
+                echo "$TASK_RESULT" | jq . 2>/dev/null || echo "$TASK_RESULT"
+                exit 1
               fi
               if [ -n "$PATH_SUFFIX" ]; then
                 ALL_URLS=$(echo "$ALL_URLS" | jq -c --arg suffix "/${PATH_SUFFIX#/}" \
@@ -327,10 +368,10 @@ runs:
               # Single-component: extract URL as before
               URL=$(echo "$TASK_RESULT" | jq -r ".result.urls.\"${DEPLOYMENT_NAME}\".urls.\"${COMPONENT}\"" 2>/dev/null)
 
-              # Fallback to constructed URL if task result doesn't contain it
               if [ -z "$URL" ] || [ "$URL" = "null" ]; then
-                URL="https://${COMPONENT}-${DEPLOYMENT_NAME}-${PROJECT_ID}.rig.prd1.gn2.quattro.rijksapps.nl"
-                echo "::warning::Could not extract URL from task result, using constructed URL"
+                echo "::error::Could not extract URL from task result"
+                echo "$TASK_RESULT" | jq . 2>/dev/null || echo "$TASK_RESULT"
+                exit 1
               fi
               if [ -n "$PATH_SUFFIX" ]; then
                 URL="${URL%/}/${PATH_SUFFIX#/}"

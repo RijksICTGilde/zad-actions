@@ -35,6 +35,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - **all actions**: New `task-timeout` input (default: `300`s) — maximum wait for async task completion
 - **all actions**: New `task-poll-interval` input (default: `3`s) — interval between task status polls
+- **deploy** action: Optional domain configuration inputs (`domain-format`, `subdomain`, `base-domain`) for custom hostname generation
+  - Input validation consistent with existing fields
+  - Early-fail when `domain-format` contains "subdomain" but `subdomain` is not set
 - **deploy** action: Multi-component deployment support
   - New `components` input: JSON array of `[{"name": "...", "image": "..."}]`
   - Deploys all components in a single API call

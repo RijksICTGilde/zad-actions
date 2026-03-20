@@ -29,6 +29,9 @@ Deploys a container image to ZAD Operations Manager.
 | `task-timeout` | No | `300` | Maximum time in seconds to wait for async task completion |
 | `task-poll-interval` | No | `3` | Seconds between task status polls |
 | `path-suffix` | No | `''` | Path to append to the deployment URL (e.g. `/docs/`) |
+| `domain-format` | No | `''` | URL format template ID for hostname generation (see [Domain Configuration](#domain-configuration)) |
+| `subdomain` | No | `''` | Subdomain for URL generation. Required when `domain-format` contains "subdomain" |
+| `base-domain` | No | `''` | Base domain for URL generation (e.g., `rijksapp.nl`). Must be cluster-supported |
 
 ## Outputs
 
@@ -156,9 +159,54 @@ permissions:
   pull-requests: write
 ```
 
+## Domain Configuration
+
+Control how deployment hostnames are generated using the optional `domain-format`, `subdomain`, and `base-domain` inputs.
+
+### Domain Format Options
+
+Dash-separated formats:
+
+| Format | Example hostname |
+|--------|-----------------|
+| `component-deployment-project` | `web-pr85-my-project.base.domain` |
+| `deployment-project` | `pr85-my-project.base.domain` |
+| `component-deployment-subdomain` | `web-pr85-myapp.base.domain` |
+| `deployment-subdomain` | `pr85-myapp.base.domain` |
+| `component-subdomain` | `web-myapp.base.domain` |
+| `subdomain` | `myapp.base.domain` |
+
+Dot-separated formats:
+
+| Format | Example hostname |
+|--------|-----------------|
+| `component.deployment.project` | `web.pr85.my-project.base.domain` |
+| `deployment.project` | `pr85.my-project.base.domain` |
+| `component.deployment.subdomain` | `web.pr85.myapp.base.domain` |
+| `deployment.subdomain` | `pr85.myapp.base.domain` |
+| `component.subdomain` | `web.myapp.base.domain` |
+
+Formats containing `subdomain` require the `subdomain` input to be set.
+
+### Example
+
+```yaml
+- name: Deploy with custom domain
+  uses: RijksICTGilde/zad-actions/deploy@v3
+  with:
+    api-key: ${{ secrets.ZAD_API_KEY }}
+    project-id: my-project
+    deployment-name: production
+    component: frontend
+    image: ghcr.io/org/app:latest
+    domain-format: component-deployment-subdomain
+    subdomain: myapp
+    base-domain: rijksapp.nl
+```
+
 ## URL Pattern
 
-The output URL follows the standard ZAD pattern:
+When no domain configuration is specified, the output URL follows the default ZAD pattern:
 ```
 https://{component}-{deployment}-{project}.your-domain.example.com
 ```

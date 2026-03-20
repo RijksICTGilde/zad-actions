@@ -4,5 +4,4 @@
 # Local settings (never commit)
 *.local.*
 
-# IDE
-.idea/
+# IDE (use ~/.gitignore_global for editor-specific ignores)

@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## [3.2.0] - 2026-03-20
+
+### Added
+- **deploy** action: Optional domain configuration inputs (`domain-format`, `subdomain`, `base-domain`) for custom hostname generation
+  - Input validation consistent with existing fields
+  - Early-fail when `domain-format` contains "subdomain" but `subdomain` is not set
+
+### Changed
+- **deploy**: URL fallback removed — action now fails with an error when the API response does not include a URL, instead of silently constructing one
+
 ## [3.1.0] - 2026-03-19
 
 ### Added
@@ -35,9 +45,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - **all actions**: New `task-timeout` input (default: `300`s) — maximum wait for async task completion
 - **all actions**: New `task-poll-interval` input (default: `3`s) — interval between task status polls
-- **deploy** action: Optional domain configuration inputs (`domain-format`, `subdomain`, `base-domain`) for custom hostname generation
-  - Input validation consistent with existing fields
-  - Early-fail when `domain-format` contains "subdomain" but `subdomain` is not set
 - **deploy** action: Multi-component deployment support
   - New `components` input: JSON array of `[{"name": "...", "image": "..."}]`
   - Deploys all components in a single API call
@@ -231,6 +238,7 @@ If you use the cleanup action with `update-pr-comment`, update your workflow:
 - Secure handling of API keys via environment variables
 - Dangerous character detection for container inputs
 
+[3.2.0]: https://github.com/RijksICTGilde/zad-actions/releases/tag/v3.2.0
 [3.1.0]: https://github.com/RijksICTGilde/zad-actions/releases/tag/v3.1.0
 [3.0.0]: https://github.com/RijksICTGilde/zad-actions/releases/tag/v3.0.0
 [2.4.0]: https://github.com/RijksICTGilde/zad-actions/releases/tag/v2.4.0

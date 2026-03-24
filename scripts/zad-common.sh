@@ -1,11 +1,25 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: EUPL-1.2
+# Shared helpers for ZAD Actions.
+# Source this file from composite action steps.
+
+# Install zad-cli if not already available.
+# Uses pip (available on all GitHub runners) to avoid curl|sh.
+install_zad_cli() {
+  if command -v zad >/dev/null 2>&1; then
+    echo "zad-cli already installed: $(zad version 2>/dev/null || echo 'unknown')"
+    return 0
+  fi
+  echo "Installing zad-cli..."
+  pip install --quiet git+https://github.com/RijksICTGilde/zad-cli.git
+}
+
 # Parse zad-cli JSON error output and emit GitHub Actions annotations.
 #
-# Usage: report_zad_error <operation> <stdout> <project-id>
+# Usage: report_zad_error <operation> <cli_stdout> <project-id>
+#
 # The CLI outputs JSON errors to stdout in --output json mode:
 #   {"error": "HTTP 401: ...", "status_code": 401}
-
 report_zad_error() {
   local operation="$1"
   local cli_stdout="$2"
@@ -44,4 +58,32 @@ report_zad_error() {
       fi
       ;;
   esac
+}
+
+# Delete a ZAD deployment via CLI, handling not-found gracefully.
+# Sets DELETE_RESULT ("true", "false") and DELETE_REASON ("not_found", "error", "").
+#
+# Usage: zad_delete_deployment <deployment-name>
+zad_delete_deployment() {
+  local deployment_name="$1"
+
+  local result zad_exit
+  result=$(zad --output json deployment delete "$deployment_name" --yes --ignore-not-found) && zad_exit=0 || zad_exit=$?
+
+  if [ "$zad_exit" -eq 0 ]; then
+    local reason
+    reason=$(echo "$result" | jq -r '.reason // empty' 2>/dev/null)
+    if [ "$reason" = "not_found" ]; then
+      DELETE_RESULT="false"
+      DELETE_REASON="not_found"
+    else
+      DELETE_RESULT="true"
+      DELETE_REASON=""
+    fi
+  else
+    DELETE_RESULT="false"
+    DELETE_REASON="error"
+    # Use warning level (cleanup failures are non-fatal)
+    report_zad_error "Delete '$deployment_name'" "$result" "${ZAD_PROJECT_ID:-unknown}"
+  fi
 }

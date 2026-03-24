@@ -253,8 +253,9 @@ runs:
       if: steps.find-stale.outputs.stale-count != '0'
       shell: bash
       run: |
-        command -v uv >/dev/null 2>&1 || curl -LsSf https://astral.sh/uv/install.sh | sh
-        uv tool install git+https://github.com/RijksICTGilde/zad-cli.git
+        # shellcheck source=../scripts/zad-common.sh
+        source "$GITHUB_ACTION_PATH/../scripts/zad-common.sh"
+        install_zad_cli
 
     - name: Cleanup stale environments
       id: cleanup
@@ -280,6 +281,9 @@ runs:
         PR_NUMBER_PATTERN: ${{ inputs.pr-number-pattern }}
         NO_COLOR: '1'
       run: |
+        # shellcheck source=../scripts/zad-common.sh
+        source "$GITHUB_ACTION_PATH/../scripts/zad-common.sh"
+
         # Re-validate pr-number-pattern (defense-in-depth, also validated in find-stale step)
         if ! echo "$PR_NUMBER_PATTERN" | grep -qE '^s/'; then
           echo "Error: pr-number-pattern must be a sed substitution expression (starting with 's/')"
@@ -309,20 +313,15 @@ runs:
           echo "--- Cleaning up: $ENV_NAME ---"
           ENV_SUCCESS=true
 
-          # 1. Delete ZAD deployment (CLI handles retry, polling, 404)
-          RESULT=$(zad --output json deployment delete "$ENV_NAME" --yes --ignore-not-found) && ZAD_EXIT=0 || ZAD_EXIT=$?
+          # 1. Delete ZAD deployment (shared helper handles retry, polling, 404, error reporting)
+          zad_delete_deployment "$ENV_NAME"
 
-          if [ "$ZAD_EXIT" -eq 0 ]; then
-            REASON=$(echo "$RESULT" | jq -r '.reason // empty' 2>/dev/null)
-            if [ "$REASON" = "not_found" ]; then
-              echo "ZAD deployment '$ENV_NAME' not found (already deleted)"
-              ENV_SUCCESS=false
-            else
-              echo "ZAD deployment '$ENV_NAME' deleted"
-            fi
+          if [ "$DELETE_RESULT" = "true" ]; then
+            echo "ZAD deployment '$ENV_NAME' deleted"
+          elif [ "$DELETE_REASON" = "not_found" ]; then
+            echo "ZAD deployment '$ENV_NAME' not found (already deleted)"
+            ENV_SUCCESS=false
           else
-            ERROR_MSG=$(echo "$RESULT" | jq -r '.error // "unknown error"' 2>/dev/null)
-            echo "::warning::Failed to delete ZAD deployment '$ENV_NAME': $ERROR_MSG"
             ENV_SUCCESS=false
           fi
 

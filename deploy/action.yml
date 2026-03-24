@@ -151,8 +151,9 @@ runs:
       if: steps.bot-check.outputs.skipped != 'true'
       shell: bash
       run: |
-        command -v uv >/dev/null 2>&1 || curl -LsSf https://astral.sh/uv/install.sh | sh
-        uv tool install git+https://github.com/RijksICTGilde/zad-cli.git
+        # shellcheck source=../scripts/zad-common.sh
+        source "$GITHUB_ACTION_PATH/../scripts/zad-common.sh"
+        install_zad_cli
 
     - name: Deploy to ZAD
       id: deploy
@@ -178,9 +179,8 @@ runs:
         BASE_DOMAIN: ${{ inputs.base-domain }}
         NO_COLOR: '1'
       run: |
-        # Load error reporting helper
-        # shellcheck source=../scripts/zad-error.sh
-        source "$GITHUB_ACTION_PATH/../scripts/zad-error.sh"
+        # shellcheck source=../scripts/zad-common.sh
+        source "$GITHUB_ACTION_PATH/../scripts/zad-common.sh"
 
         # Determine mode and validate inputs
         MULTI_COMPONENT=false

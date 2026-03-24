@@ -135,89 +135,44 @@ runs:
         done
         echo "skipped=false" >> "$GITHUB_OUTPUT"
 
+    - name: Install zad-cli
+      if: steps.bot-check.outputs.skipped != 'true'
+      shell: bash
+      run: pipx install git+https://github.com/RijksICTGilde/zad-cli.git
+
     - name: Delete ZAD Deployment
       id: delete-zad
       if: steps.bot-check.outputs.skipped != 'true'
       shell: bash
       env:
         ZAD_API_KEY: ${{ inputs.api-key }}
-        PROJECT_ID: ${{ inputs.project-id }}
+        ZAD_API_URL: ${{ inputs.api-base-url }}
+        ZAD_PROJECT_ID: ${{ inputs.project-id }}
+        ZAD_MAX_RETRIES: ${{ inputs.max-retries }}
+        ZAD_RETRY_DELAY: ${{ inputs.retry-delay }}
+        ZAD_TASK_TIMEOUT: ${{ inputs.task-timeout }}
+        ZAD_TASK_POLL_INTERVAL: ${{ inputs.task-poll-interval }}
         DEPLOYMENT_NAME: ${{ inputs.deployment-name }}
-        API_BASE_URL: ${{ inputs.api-base-url }}
-        MAX_RETRIES: ${{ inputs.max-retries }}
-        RETRY_DELAY: ${{ inputs.retry-delay }}
-        TASK_TIMEOUT: ${{ inputs.task-timeout }}
-        TASK_POLL_INTERVAL: ${{ inputs.task-poll-interval }}
+        NO_COLOR: '1'
       run: |
-        # Validate inputs FIRST (before logging)
-        # Allow alphanumeric, hyphens, underscores, and dots
-        if ! echo "$PROJECT_ID" | grep -qE '^[a-zA-Z0-9._-]+$'; then
-          echo "Error: project-id contains invalid characters (allowed: a-z, A-Z, 0-9, ., _, -)"
-          exit 1
-        fi
-        if ! echo "$DEPLOYMENT_NAME" | grep -qE '^[a-zA-Z0-9._-]+$'; then
-          echo "Error: deployment-name contains invalid characters (allowed: a-z, A-Z, 0-9, ., _, -)"
-          exit 1
-        fi
-        if ! echo "$MAX_RETRIES" | grep -qE '^[0-9]+$'; then
-          echo "Error: max-retries must be a non-negative integer"
-          exit 1
-        fi
-        if ! echo "$RETRY_DELAY" | grep -qE '^[0-9]+$'; then
-          echo "Error: retry-delay must be a non-negative integer"
-          exit 1
-        fi
-        if ! echo "$TASK_TIMEOUT" | grep -qE '^[0-9]+$'; then
-          echo "Error: task-timeout must be a non-negative integer"
-          exit 1
-        fi
-        if ! echo "$TASK_POLL_INTERVAL" | grep -qE '^[0-9]+$'; then
-          echo "Error: task-poll-interval must be a non-negative integer"
-          exit 1
-        fi
+        echo "Deleting ZAD deployment: $DEPLOYMENT_NAME from project: $ZAD_PROJECT_ID"
 
-        # Now safe to log
-        echo "Deleting ZAD deployment: $DEPLOYMENT_NAME from project: $PROJECT_ID"
+        RESULT=$(zad --output json deployment delete "$DEPLOYMENT_NAME" --yes --ignore-not-found 2>zad_stderr.txt) && ZAD_EXIT=0 || ZAD_EXIT=$?
 
-        # Load shared helpers (curl_with_retry, poll_task, build_poll_url)
-        # shellcheck source=../scripts/zad-common.sh
-        source "$GITHUB_ACTION_PATH/../scripts/zad-common.sh"
-
-        if curl_with_retry "$API_BASE_URL/v2/projects/$PROJECT_ID/$DEPLOYMENT_NAME" \
-            -X DELETE \
-            -H "X-API-Key: $ZAD_API_KEY"; then
-
-          TASK_ID=$(echo "$FINAL_BODY" | jq -r '.task_id' 2>/dev/null)
-          POLL_URL=$(echo "$FINAL_BODY" | jq -r '.poll_url' 2>/dev/null)
-          echo "Delete task accepted (ID: $TASK_ID), polling for completion..."
-
-          FULL_POLL_URL=$(build_poll_url "$POLL_URL")
-
-          if poll_task "$FULL_POLL_URL"; then
-            echo "ZAD deployment deleted successfully"
-            echo "deleted=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "::error::ZAD deployment delete task did not complete successfully"
-            echo "deleted=false" >> "$GITHUB_OUTPUT"
-          fi
-        else
-          if [ "$FINAL_HTTP_CODE" -eq 404 ]; then
+        if [ "$ZAD_EXIT" -eq 0 ]; then
+          # Check if it was actually deleted or just not found
+          REASON=$(echo "$RESULT" | jq -r '.reason // empty' 2>/dev/null)
+          if [ "$REASON" = "not_found" ]; then
             echo "ZAD deployment not found (already deleted?)"
             echo "deleted=false" >> "$GITHUB_OUTPUT"
-          elif [ "$FINAL_HTTP_CODE" -eq 000 ]; then
-            echo "::warning::Unable to connect to ZAD API - network issue or API unavailable"
-            echo "deleted=false" >> "$GITHUB_OUTPUT"
-          elif [ "$FINAL_HTTP_CODE" -eq 401 ]; then
-            echo "::warning::Authentication failed (HTTP 401) - verify ZAD_API_KEY is correct"
-            echo "deleted=false" >> "$GITHUB_OUTPUT"
-          elif [ "$FINAL_HTTP_CODE" -eq 403 ]; then
-            echo "::warning::Access denied (HTTP 403) - API key may lack permission for project '$PROJECT_ID'"
-            echo "deleted=false" >> "$GITHUB_OUTPUT"
           else
-            echo "::warning::Failed to delete ZAD deployment (HTTP $FINAL_HTTP_CODE)"
-            echo "$FINAL_BODY"
-            echo "deleted=false" >> "$GITHUB_OUTPUT"
+            echo "ZAD deployment deleted successfully"
+            echo "deleted=true" >> "$GITHUB_OUTPUT"
           fi
+        else
+          ZAD_STDERR=$(cat zad_stderr.txt)
+          echo "::warning::Failed to delete ZAD deployment: $ZAD_STDERR"
+          echo "deleted=false" >> "$GITHUB_OUTPUT"
         fi
 
     - name: Delete GitHub Deployments

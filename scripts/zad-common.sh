@@ -64,6 +64,7 @@ report_zad_error() {
 # Sets DELETE_RESULT ("true", "false") and DELETE_REASON ("not_found", "error", "").
 #
 # Usage: zad_delete_deployment <deployment-name>
+# shellcheck disable=SC2034  # DELETE_RESULT and DELETE_REASON are used by the sourcing script
 zad_delete_deployment() {
   local deployment_name="$1"
 

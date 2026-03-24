@@ -147,124 +147,80 @@ runs:
         done
         echo "skipped=false" >> "$GITHUB_OUTPUT"
 
+    - name: Install zad-cli
+      if: steps.bot-check.outputs.skipped != 'true'
+      shell: bash
+      run: |
+        # shellcheck source=../scripts/zad-common.sh
+        source "$GITHUB_ACTION_PATH/../scripts/zad-common.sh"
+        install_zad_cli
+
     - name: Deploy to ZAD
       id: deploy
       if: steps.bot-check.outputs.skipped != 'true'
       shell: bash
       env:
         ZAD_API_KEY: ${{ inputs.api-key }}
-        PROJECT_ID: ${{ inputs.project-id }}
+        ZAD_API_URL: ${{ inputs.api-base-url }}
+        ZAD_PROJECT_ID: ${{ inputs.project-id }}
+        ZAD_MAX_RETRIES: ${{ inputs.max-retries }}
+        ZAD_RETRY_DELAY: ${{ inputs.retry-delay }}
+        ZAD_TASK_TIMEOUT: ${{ inputs.task-timeout }}
+        ZAD_TASK_POLL_INTERVAL: ${{ inputs.task-poll-interval }}
         DEPLOYMENT_NAME: ${{ inputs.deployment-name }}
         COMPONENT: ${{ inputs.component }}
         IMAGE: ${{ inputs.image }}
         COMPONENTS: ${{ inputs.components }}
         CLONE_FROM: ${{ inputs.clone-from }}
         FORCE_CLONE: ${{ inputs.force-clone }}
-        API_BASE_URL: ${{ inputs.api-base-url }}
-        MAX_RETRIES: ${{ inputs.max-retries }}
-        RETRY_DELAY: ${{ inputs.retry-delay }}
         PATH_SUFFIX: ${{ inputs.path-suffix }}
-        TASK_TIMEOUT: ${{ inputs.task-timeout }}
-        TASK_POLL_INTERVAL: ${{ inputs.task-poll-interval }}
         DOMAIN_FORMAT: ${{ inputs.domain-format }}
         SUBDOMAIN: ${{ inputs.subdomain }}
         BASE_DOMAIN: ${{ inputs.base-domain }}
+        NO_COLOR: '1'
       run: |
-        # Validate inputs FIRST (before logging)
-        # Allow alphanumeric, hyphens, underscores, and dots
-        if ! echo "$PROJECT_ID" | grep -qE '^[a-zA-Z0-9._-]+$'; then
-          echo "Error: project-id contains invalid characters (allowed: a-z, A-Z, 0-9, ., _, -)"
-          exit 1
-        fi
-        if ! echo "$DEPLOYMENT_NAME" | grep -qE '^[a-zA-Z0-9._-]+$'; then
-          echo "Error: deployment-name contains invalid characters (allowed: a-z, A-Z, 0-9, ., _, -)"
-          exit 1
-        fi
-        if [ -n "$CLONE_FROM" ] && ! echo "$CLONE_FROM" | grep -qE '^[a-zA-Z0-9._-]+$'; then
-          echo "Error: clone-from contains invalid characters (allowed: a-z, A-Z, 0-9, ., _, -)"
-          exit 1
-        fi
-        if ! echo "$MAX_RETRIES" | grep -qE '^[0-9]+$'; then
-          echo "Error: max-retries must be a non-negative integer"
-          exit 1
-        fi
-        if ! echo "$RETRY_DELAY" | grep -qE '^[0-9]+$'; then
-          echo "Error: retry-delay must be a non-negative integer"
-          exit 1
-        fi
-        if ! echo "$TASK_TIMEOUT" | grep -qE '^[0-9]+$'; then
-          echo "Error: task-timeout must be a non-negative integer"
-          exit 1
-        fi
-        if ! echo "$TASK_POLL_INTERVAL" | grep -qE '^[0-9]+$'; then
-          echo "Error: task-poll-interval must be a non-negative integer"
-          exit 1
-        fi
-        if [ -n "$DOMAIN_FORMAT" ] && ! echo "$DOMAIN_FORMAT" | grep -qE '^[a-zA-Z0-9._-]+$'; then
-          echo "Error: domain-format contains invalid characters (allowed: a-z, A-Z, 0-9, ., _, -)"
-          exit 1
-        fi
-        if [ -n "$SUBDOMAIN" ] && ! echo "$SUBDOMAIN" | grep -qE '^[a-zA-Z0-9._-]+$'; then
-          echo "Error: subdomain contains invalid characters (allowed: a-z, A-Z, 0-9, ., _, -)"
-          exit 1
-        fi
-        if [ -n "$BASE_DOMAIN" ] && ! echo "$BASE_DOMAIN" | grep -qE '^[a-zA-Z0-9._-]+$'; then
-          echo "Error: base-domain contains invalid characters (allowed: a-z, A-Z, 0-9, ., _, -)"
-          exit 1
-        fi
-        if [ -n "$DOMAIN_FORMAT" ] && echo "$DOMAIN_FORMAT" | grep -q "subdomain" && [ -z "$SUBDOMAIN" ]; then
-          echo "Error: subdomain is required when domain-format contains 'subdomain'"
-          exit 1
-        fi
+        # shellcheck source=../scripts/zad-common.sh
+        source "$GITHUB_ACTION_PATH/../scripts/zad-common.sh"
 
-        # Determine mode: multi-component or single-component
+        # Determine mode and validate inputs
         MULTI_COMPONENT=false
         if [ -n "$COMPONENTS" ]; then
           MULTI_COMPONENT=true
 
-          # Validate JSON structure
           if ! echo "$COMPONENTS" | jq empty 2>/dev/null; then
             echo "Error: components input is not valid JSON"
             exit 1
           fi
 
-          # Validate it's an array with at least one element
           COMP_COUNT=$(echo "$COMPONENTS" | jq 'length')
           if [ "$COMP_COUNT" -eq 0 ]; then
             echo "Error: components array must contain at least one entry"
             exit 1
           fi
 
-          # Validate each entry has name and image
-          JQ_FILTER='.[] | select(.name == null or .name == ""
+          INVALID=$(echo "$COMPONENTS" | jq -r '.[] | select(.name == null or .name == ""
             or .image == null or .image == "")
-            | "missing name or image"'
-          INVALID=$(echo "$COMPONENTS" | jq -r "$JQ_FILTER" | head -n1)
+            | "missing name or image"' | head -n1)
           if [ -n "$INVALID" ]; then
             echo "Error: each component must have a non-empty 'name' and 'image'"
             exit 1
           fi
-
-          # Validate each component name matches allowed characters
-          BAD_NAMES=$(echo "$COMPONENTS" | jq -r '.[].name' | grep -vE '^[a-zA-Z0-9._-]+$' || true)
-          if [ -n "$BAD_NAMES" ]; then
-            echo "Error: component name(s) contain invalid characters: $BAD_NAMES"
-            exit 1
-          fi
         elif [ -n "$COMPONENT" ] && [ -n "$IMAGE" ]; then
-          # Single-component mode
-          if ! echo "$COMPONENT" | grep -qE '^[a-zA-Z0-9._-]+$'; then
-            echo "Error: component contains invalid characters (allowed: a-z, A-Z, 0-9, ., _, -)"
-            exit 1
-          fi
+          : # single-component mode
         else
           echo "Error: either 'components' or both 'component' and 'image' must be provided"
           exit 1
         fi
 
-        # Now safe to log validated inputs
+        # Validate domain inputs (not validated by CLI)
+        if [ -n "$DOMAIN_FORMAT" ] && echo "$DOMAIN_FORMAT" | grep -q "subdomain" && [ -z "$SUBDOMAIN" ]; then
+          echo "Error: subdomain is required when domain-format contains 'subdomain'"
+          exit 1
+        fi
+
+        # Log inputs
         echo "Deploying to ZAD..."
-        echo "Project: $PROJECT_ID"
+        echo "Project: $ZAD_PROJECT_ID"
         echo "Deployment: $DEPLOYMENT_NAME"
         if [ "$MULTI_COMPONENT" = "true" ]; then
           echo "Components:"
@@ -277,135 +233,73 @@ runs:
           echo "Cloning config from: $CLONE_FROM (force: $FORCE_CLONE)"
         fi
 
-        # Build the components JSON array
+        # Build zad CLI command
+        ZAD_CMD=(zad --output json deployment create "$DEPLOYMENT_NAME" --yes)
+
         if [ "$MULTI_COMPONENT" = "true" ]; then
-          COMPONENTS_JSON=$(echo "$COMPONENTS" | jq '[.[] | {reference: .name, image: .image}]')
+          ZAD_CMD+=(--components "$COMPONENTS")
         else
-          COMPONENTS_JSON=$(jq -n --arg ref "$COMPONENT" --arg image "$IMAGE" \
-            '[{reference: $ref, image: $image}]')
+          ZAD_CMD+=(--component "$COMPONENT" --image "$IMAGE")
         fi
 
-        # Build the request payload
         if [ -n "$CLONE_FROM" ]; then
-          FORCE_CLONE_BOOL="false"
+          ZAD_CMD+=(--clone-from "$CLONE_FROM")
           if [ "$FORCE_CLONE" = "true" ]; then
-            FORCE_CLONE_BOOL="true"
+            ZAD_CMD+=(--force-clone)
           fi
-          PAYLOAD=$(jq -n \
-            --arg name "$DEPLOYMENT_NAME" \
-            --arg clone "$CLONE_FROM" \
-            --argjson force "$FORCE_CLONE_BOOL" \
-            --argjson comps "$COMPONENTS_JSON" \
-            '{
-              deploymentName: $name,
-              cloneFrom: $clone,
-              forceClone: $force,
-              components: $comps
-            }')
-        else
-          PAYLOAD=$(jq -n \
-            --arg name "$DEPLOYMENT_NAME" \
-            --argjson comps "$COMPONENTS_JSON" \
-            '{
-              deploymentName: $name,
-              components: $comps
-            }')
         fi
-
-        # Add optional domain fields when set
         if [ -n "$DOMAIN_FORMAT" ]; then
-          PAYLOAD=$(echo "$PAYLOAD" | jq --arg df "$DOMAIN_FORMAT" '. + {domain_format: $df}')
+          ZAD_CMD+=(--domain-format "$DOMAIN_FORMAT")
         fi
         if [ -n "$SUBDOMAIN" ]; then
-          PAYLOAD=$(echo "$PAYLOAD" | jq --arg sd "$SUBDOMAIN" '. + {subdomain: $sd}')
+          ZAD_CMD+=(--subdomain "$SUBDOMAIN")
         fi
         if [ -n "$BASE_DOMAIN" ]; then
-          PAYLOAD=$(echo "$PAYLOAD" | jq --arg bd "$BASE_DOMAIN" '. + {base_domain: $bd}')
+          ZAD_CMD+=(--base-domain "$BASE_DOMAIN")
         fi
 
-        # Load shared helpers (curl_with_retry, poll_task, build_poll_url)
-        # shellcheck source=../scripts/zad-common.sh
-        source "$GITHUB_ACTION_PATH/../scripts/zad-common.sh"
+        # Execute CLI (retry, polling, error handling all built in)
+        # In --output json mode, errors go to stdout as JSON with status_code
+        RESULT=$("${ZAD_CMD[@]}") && ZAD_EXIT=0 || ZAD_EXIT=$?
 
-        # Make the API call with retry logic (V2 async endpoint)
-        # Safe to retry: upsert-deployment is idempotent (same payload = same result)
-        if curl_with_retry "$API_BASE_URL/v2/projects/$PROJECT_ID/:upsert-deployment" \
-            -X POST \
-            -H "X-API-Key: $ZAD_API_KEY" \
-            -H "Content-Type: application/json" \
-            -d "$PAYLOAD"; then
+        if [ "$ZAD_EXIT" -ne 0 ]; then
+          report_zad_error "Deployment" "$RESULT" "$ZAD_PROJECT_ID"
+          exit 1
+        fi
 
-          TASK_ID=$(echo "$FINAL_BODY" | jq -r '.task_id' 2>/dev/null)
-          POLL_URL=$(echo "$FINAL_BODY" | jq -r '.poll_url' 2>/dev/null)
-          echo "Task accepted (ID: $TASK_ID), polling for completion..."
+        echo "Deployment successful"
 
-          FULL_POLL_URL=$(build_poll_url "$POLL_URL")
-
-          if poll_task "$FULL_POLL_URL"; then
-            echo "Deployment successful"
-            echo "$TASK_RESULT" | jq '.result' 2>/dev/null || echo "$TASK_RESULT"
-
-            if [ "$MULTI_COMPONENT" = "true" ]; then
-              # Multi-component: extract all URLs and build urls output
-              ALL_URLS=$(echo "$TASK_RESULT" | jq -c ".result.urls.\"${DEPLOYMENT_NAME}\".urls // {}" 2>/dev/null)
-              if [ -z "$ALL_URLS" ] || [ "$ALL_URLS" = "{}" ] || [ "$ALL_URLS" = "null" ]; then
-                echo "::error::Could not extract URLs from task result"
-                echo "$TASK_RESULT" | jq . 2>/dev/null || echo "$TASK_RESULT"
-                exit 1
-              fi
-              if [ -n "$PATH_SUFFIX" ]; then
-                ALL_URLS=$(echo "$ALL_URLS" | jq -c --arg suffix "/${PATH_SUFFIX#/}" \
-                  'to_entries | map(.value = (.value | rtrimstr("/")) + $suffix) | from_entries')
-              fi
-              echo "urls=$ALL_URLS" >> "$GITHUB_OUTPUT"
-              # First component URL for backward compatibility
-              FIRST_COMP=$(echo "$COMPONENTS" | jq -r '.[0].name')
-              URL=$(echo "$ALL_URLS" | jq -r ".\"${FIRST_COMP}\"" 2>/dev/null)
-              echo "url=$URL" >> "$GITHUB_OUTPUT"
-              echo "Deployed components:"
-              echo "$ALL_URLS" | jq -r 'to_entries[] | "  \(.key): \(.value)"'
-            else
-              # Single-component: extract URL as before
-              URL=$(echo "$TASK_RESULT" | jq -r ".result.urls.\"${DEPLOYMENT_NAME}\".urls.\"${COMPONENT}\"" 2>/dev/null)
-
-              if [ -z "$URL" ] || [ "$URL" = "null" ]; then
-                echo "::error::Could not extract URL from task result"
-                echo "$TASK_RESULT" | jq . 2>/dev/null || echo "$TASK_RESULT"
-                exit 1
-              fi
-              if [ -n "$PATH_SUFFIX" ]; then
-                URL="${URL%/}/${PATH_SUFFIX#/}"
-              fi
-              echo "url=$URL" >> "$GITHUB_OUTPUT"
-              echo "Deployed to: $URL"
-            fi
-          else
-            echo "::error::Deployment task failed"
-            echo "$TASK_RESULT" | jq . 2>/dev/null || echo "$TASK_RESULT"
+        # Extract URLs from CLI output
+        # CLI returns unwrapped task result: .urls.<deployment>.urls.<component>
+        if [ "$MULTI_COMPONENT" = "true" ]; then
+          ALL_URLS=$(echo "$RESULT" | jq -c ".urls.\"${DEPLOYMENT_NAME}\".urls // {}" 2>/dev/null)
+          if [ -z "$ALL_URLS" ] || [ "$ALL_URLS" = "{}" ] || [ "$ALL_URLS" = "null" ]; then
+            echo "::error::Could not extract URLs from result"
+            echo "$RESULT" | jq . 2>/dev/null || echo "$RESULT"
             exit 1
           fi
-        else
-          if [ "$FINAL_HTTP_CODE" -eq 000 ]; then
-            echo "::error::Deployment failed: Unable to connect to ZAD API"
-            echo "::error::This could be a network issue or the API may be unavailable"
-            echo "::error::Please verify the API URL: $API_BASE_URL"
-          elif [ "$FINAL_HTTP_CODE" -eq 401 ]; then
-            echo "::error::Deployment failed: Authentication failed (HTTP 401)"
-            echo "::error::Please verify your ZAD_API_KEY secret is correct and not expired"
-          elif [ "$FINAL_HTTP_CODE" -eq 403 ]; then
-            echo "::error::Deployment failed: Access denied (HTTP 403)"
-            echo "::error::Your API key may not have permission for project '$PROJECT_ID'"
-          elif [ "$FINAL_HTTP_CODE" -eq 404 ]; then
-            echo "::error::Deployment failed: Project not found (HTTP 404)"
-            echo "::error::Please verify project-id '$PROJECT_ID' exists in ZAD"
-          elif [ "$FINAL_HTTP_CODE" -ge 500 ]; then
-            echo "::error::Deployment failed: ZAD API server error (HTTP $FINAL_HTTP_CODE) after retries"
-            echo "$FINAL_BODY"
-          else
-            echo "::error::Deployment failed (HTTP $FINAL_HTTP_CODE)"
-            echo "$FINAL_BODY"
+          if [ -n "$PATH_SUFFIX" ]; then
+            ALL_URLS=$(echo "$ALL_URLS" | jq -c --arg suffix "/${PATH_SUFFIX#/}" \
+              'to_entries | map(.value = (.value | rtrimstr("/")) + $suffix) | from_entries')
           fi
-          exit 1
+          echo "urls=$ALL_URLS" >> "$GITHUB_OUTPUT"
+          FIRST_COMP=$(echo "$COMPONENTS" | jq -r '.[0].name')
+          URL=$(echo "$ALL_URLS" | jq -r ".\"${FIRST_COMP}\"" 2>/dev/null)
+          echo "url=$URL" >> "$GITHUB_OUTPUT"
+          echo "Deployed components:"
+          echo "$ALL_URLS" | jq -r 'to_entries[] | "  \(.key): \(.value)"'
+        else
+          URL=$(echo "$RESULT" | jq -r ".urls.\"${DEPLOYMENT_NAME}\".urls.\"${COMPONENT}\"" 2>/dev/null)
+          if [ -z "$URL" ] || [ "$URL" = "null" ]; then
+            echo "::error::Could not extract URL from result"
+            echo "$RESULT" | jq . 2>/dev/null || echo "$RESULT"
+            exit 1
+          fi
+          if [ -n "$PATH_SUFFIX" ]; then
+            URL="${URL%/}/${PATH_SUFFIX#/}"
+          fi
+          echo "url=$URL" >> "$GITHUB_OUTPUT"
+          echo "Deployed to: $URL"
         fi
 
     - name: Wait for deployment to be ready

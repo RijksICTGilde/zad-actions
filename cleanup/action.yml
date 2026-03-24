@@ -138,7 +138,9 @@ runs:
     - name: Install zad-cli
       if: steps.bot-check.outputs.skipped != 'true'
       shell: bash
-      run: pipx install git+https://github.com/RijksICTGilde/zad-cli.git
+      run: |
+        command -v uv >/dev/null 2>&1 || curl -LsSf https://astral.sh/uv/install.sh | sh
+        uv tool install git+https://github.com/RijksICTGilde/zad-cli.git
 
     - name: Delete ZAD Deployment
       id: delete-zad
@@ -157,10 +159,9 @@ runs:
       run: |
         echo "Deleting ZAD deployment: $DEPLOYMENT_NAME from project: $ZAD_PROJECT_ID"
 
-        RESULT=$(zad --output json deployment delete "$DEPLOYMENT_NAME" --yes --ignore-not-found 2>zad_stderr.txt) && ZAD_EXIT=0 || ZAD_EXIT=$?
+        RESULT=$(zad --output json deployment delete "$DEPLOYMENT_NAME" --yes --ignore-not-found) && ZAD_EXIT=0 || ZAD_EXIT=$?
 
         if [ "$ZAD_EXIT" -eq 0 ]; then
-          # Check if it was actually deleted or just not found
           REASON=$(echo "$RESULT" | jq -r '.reason // empty' 2>/dev/null)
           if [ "$REASON" = "not_found" ]; then
             echo "ZAD deployment not found (already deleted?)"
@@ -170,8 +171,18 @@ runs:
             echo "deleted=true" >> "$GITHUB_OUTPUT"
           fi
         else
-          ZAD_STDERR=$(cat zad_stderr.txt)
-          echo "::warning::Failed to delete ZAD deployment: $ZAD_STDERR"
+          # Parse structured error from CLI JSON output (stdout)
+          STATUS_CODE=$(echo "$RESULT" | jq -r '.status_code // 0' 2>/dev/null || echo "0")
+          if [ "$STATUS_CODE" = "0" ] || [ "$STATUS_CODE" = "null" ]; then
+            echo "::warning::Unable to connect to ZAD API - network issue or API unavailable"
+          elif [ "$STATUS_CODE" = "401" ]; then
+            echo "::warning::Authentication failed (HTTP 401) - verify ZAD_API_KEY is correct"
+          elif [ "$STATUS_CODE" = "403" ]; then
+            echo "::warning::Access denied (HTTP 403) - API key may lack permission for project '$ZAD_PROJECT_ID'"
+          else
+            ERROR_MSG=$(echo "$RESULT" | jq -r '.error // "unknown error"' 2>/dev/null)
+            echo "::warning::Failed to delete ZAD deployment (HTTP $STATUS_CODE): $ERROR_MSG"
+          fi
           echo "deleted=false" >> "$GITHUB_OUTPUT"
         fi
 

@@ -252,7 +252,9 @@ runs:
     - name: Install zad-cli
       if: steps.find-stale.outputs.stale-count != '0'
       shell: bash
-      run: pipx install git+https://github.com/RijksICTGilde/zad-cli.git
+      run: |
+        command -v uv >/dev/null 2>&1 || curl -LsSf https://astral.sh/uv/install.sh | sh
+        uv tool install git+https://github.com/RijksICTGilde/zad-cli.git
 
     - name: Cleanup stale environments
       id: cleanup
@@ -308,7 +310,7 @@ runs:
           ENV_SUCCESS=true
 
           # 1. Delete ZAD deployment (CLI handles retry, polling, 404)
-          RESULT=$(zad --output json deployment delete "$ENV_NAME" --yes --ignore-not-found 2>zad_stderr.txt) && ZAD_EXIT=0 || ZAD_EXIT=$?
+          RESULT=$(zad --output json deployment delete "$ENV_NAME" --yes --ignore-not-found) && ZAD_EXIT=0 || ZAD_EXIT=$?
 
           if [ "$ZAD_EXIT" -eq 0 ]; then
             REASON=$(echo "$RESULT" | jq -r '.reason // empty' 2>/dev/null)
@@ -319,7 +321,8 @@ runs:
               echo "ZAD deployment '$ENV_NAME' deleted"
             fi
           else
-            echo "::warning::Failed to delete ZAD deployment '$ENV_NAME': $(cat zad_stderr.txt)"
+            ERROR_MSG=$(echo "$RESULT" | jq -r '.error // "unknown error"' 2>/dev/null)
+            echo "::warning::Failed to delete ZAD deployment '$ENV_NAME': $ERROR_MSG"
             ENV_SUCCESS=false
           fi
 

@@ -150,7 +150,9 @@ runs:
     - name: Install zad-cli
       if: steps.bot-check.outputs.skipped != 'true'
       shell: bash
-      run: pipx install git+https://github.com/RijksICTGilde/zad-cli.git
+      run: |
+        command -v uv >/dev/null 2>&1 || curl -LsSf https://astral.sh/uv/install.sh | sh
+        uv tool install git+https://github.com/RijksICTGilde/zad-cli.git
 
     - name: Deploy to ZAD
       id: deploy
@@ -176,6 +178,10 @@ runs:
         BASE_DOMAIN: ${{ inputs.base-domain }}
         NO_COLOR: '1'
       run: |
+        # Load error reporting helper
+        # shellcheck source=../scripts/zad-error.sh
+        source "$GITHUB_ACTION_PATH/../scripts/zad-error.sh"
+
         # Determine mode and validate inputs
         MULTI_COMPONENT=false
         if [ -n "$COMPONENTS" ]; then
@@ -203,6 +209,12 @@ runs:
           : # single-component mode
         else
           echo "Error: either 'components' or both 'component' and 'image' must be provided"
+          exit 1
+        fi
+
+        # Validate domain inputs (not validated by CLI)
+        if [ -n "$DOMAIN_FORMAT" ] && echo "$DOMAIN_FORMAT" | grep -q "subdomain" && [ -z "$SUBDOMAIN" ]; then
+          echo "Error: subdomain is required when domain-format contains 'subdomain'"
           exit 1
         fi
 
@@ -247,11 +259,11 @@ runs:
         fi
 
         # Execute CLI (retry, polling, error handling all built in)
-        RESULT=$("${ZAD_CMD[@]}" 2>zad_stderr.txt) && ZAD_EXIT=0 || ZAD_EXIT=$?
+        # In --output json mode, errors go to stdout as JSON with status_code
+        RESULT=$("${ZAD_CMD[@]}") && ZAD_EXIT=0 || ZAD_EXIT=$?
 
         if [ "$ZAD_EXIT" -ne 0 ]; then
-          ZAD_STDERR=$(cat zad_stderr.txt)
-          echo "::error::Deployment failed: $ZAD_STDERR"
+          report_zad_error "Deployment" "$RESULT" "$ZAD_PROJECT_ID"
           exit 1
         fi
 

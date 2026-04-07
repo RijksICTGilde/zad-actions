@@ -330,8 +330,7 @@ runs:
           if [ "$DELETE_RESULT" = "true" ]; then
             echo "ZAD deployment '$ENV_NAME' deleted"
           elif [ "$DELETE_REASON" = "not_found" ]; then
-            echo "ZAD deployment '$ENV_NAME' not found (already deleted)"
-            ENV_SUCCESS=false
+            echo "ZAD deployment '$ENV_NAME' not found (already clean)"
           else
             ENV_SUCCESS=false
           fi

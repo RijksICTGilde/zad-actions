@@ -18,13 +18,14 @@ install_zad_cli() {
     exit 1
   fi
   # Ensure uv tool bin directory is on PATH for subsequent steps
-  UV_TOOL_BIN=$(uv tool dir 2>/dev/null)/../bin
-  if [ -d "$HOME/.local/bin" ]; then
-    echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-  elif [ -n "$UV_TOOL_BIN" ] && [ -d "$UV_TOOL_BIN" ]; then
+  UV_TOOL_BIN=$(uv tool bin 2>/dev/null || echo "")
+  if [ -n "$UV_TOOL_BIN" ] && [ -d "$UV_TOOL_BIN" ]; then
     echo "$UV_TOOL_BIN" >> "$GITHUB_PATH"
+    export PATH="$UV_TOOL_BIN:$PATH"
+  elif [ -d "$HOME/.local/bin" ]; then
+    echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+    export PATH="$HOME/.local/bin:$PATH"
   fi
-  export PATH="$HOME/.local/bin:$PATH"
   if ! command -v zad >/dev/null 2>&1; then
     echo "::error::zad-cli installed but 'zad' command not found in PATH"
     exit 1

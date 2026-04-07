@@ -249,14 +249,30 @@ runs:
         # Write stale list to temp file for next step
         echo "$STALE_ENVS" > "$RUNNER_TEMP/stale-envs.txt"
 
+    - name: Setup uv
+      if: steps.find-stale.outputs.stale-count != '0'
+      uses: astral-sh/setup-uv@v6
+
+    - name: Install zad-cli
+      if: steps.find-stale.outputs.stale-count != '0'
+      shell: bash
+      run: |
+        # shellcheck source=../scripts/zad-common.sh
+        source "$GITHUB_ACTION_PATH/../scripts/zad-common.sh"
+        install_zad_cli
+
     - name: Cleanup stale environments
       id: cleanup
       if: steps.find-stale.outputs.stale-count != '0'
       shell: bash
       env:
         ZAD_API_KEY: ${{ inputs.api-key }}
-        PROJECT_ID: ${{ inputs.project-id }}
-        API_BASE_URL: ${{ inputs.api-base-url }}
+        ZAD_API_URL: ${{ inputs.api-base-url }}
+        ZAD_PROJECT_ID: ${{ inputs.project-id }}
+        ZAD_MAX_RETRIES: ${{ inputs.max-retries }}
+        ZAD_RETRY_DELAY: ${{ inputs.retry-delay }}
+        ZAD_TASK_TIMEOUT: ${{ inputs.task-timeout }}
+        ZAD_TASK_POLL_INTERVAL: ${{ inputs.task-poll-interval }}
         DRY_RUN: ${{ inputs.dry-run }}
         DELETE_GITHUB_ENV: ${{ inputs.delete-github-env }}
         DELETE_GITHUB_DEPLOYMENTS: ${{ inputs.delete-github-deployments }}
@@ -266,33 +282,19 @@ runs:
         GH_TOKEN: ${{ inputs.github-token }}
         GH_ADMIN_TOKEN: ${{ inputs.github-admin-token }}
         GITHUB_REPOSITORY: ${{ github.repository }}
-        MAX_RETRIES: ${{ inputs.max-retries }}
-        RETRY_DELAY: ${{ inputs.retry-delay }}
         PR_NUMBER_PATTERN: ${{ inputs.pr-number-pattern }}
-        TASK_TIMEOUT: ${{ inputs.task-timeout }}
-        TASK_POLL_INTERVAL: ${{ inputs.task-poll-interval }}
+        NO_COLOR: '1'
       run: |
+        # shellcheck source=../scripts/zad-common.sh
+        source "$GITHUB_ACTION_PATH/../scripts/zad-common.sh"
+
         # Validate inputs
-        if ! echo "$PROJECT_ID" | grep -qE '^[a-zA-Z0-9._-]+$'; then
-          echo "Error: project-id contains invalid characters"
-          exit 1
-        fi
-        if ! echo "$MAX_RETRIES" | grep -qE '^[0-9]+$'; then
-          echo "Error: max-retries must be a non-negative integer"
-          exit 1
-        fi
-        if ! echo "$RETRY_DELAY" | grep -qE '^[0-9]+$'; then
-          echo "Error: retry-delay must be a non-negative integer"
-          exit 1
-        fi
-        if ! echo "$TASK_TIMEOUT" | grep -qE '^[0-9]+$'; then
-          echo "Error: task-timeout must be a non-negative integer"
-          exit 1
-        fi
-        if ! echo "$TASK_POLL_INTERVAL" | grep -qE '^[0-9]+$'; then
-          echo "Error: task-poll-interval must be a non-negative integer"
-          exit 1
-        fi
+        validate_input "project-id" "$ZAD_PROJECT_ID"
+        validate_integer "max-retries" "$ZAD_MAX_RETRIES"
+        validate_integer "retry-delay" "$ZAD_RETRY_DELAY"
+        validate_integer "task-timeout" "$ZAD_TASK_TIMEOUT"
+        validate_integer "task-poll-interval" "$ZAD_TASK_POLL_INTERVAL"
+
         # Re-validate pr-number-pattern (defense-in-depth, also validated in find-stale step)
         if ! echo "$PR_NUMBER_PATTERN" | grep -qE '^s/'; then
           echo "Error: pr-number-pattern must be a sed substitution expression (starting with 's/')"
@@ -302,10 +304,6 @@ runs:
           echo "Error: pr-number-pattern contains disallowed characters"
           exit 1
         fi
-
-        # Load shared helpers (curl_with_retry, poll_task, build_poll_url)
-        # shellcheck source=../scripts/zad-common.sh
-        source "$GITHUB_ACTION_PATH/../scripts/zad-common.sh"
 
         CLEANED=0
 
@@ -326,27 +324,14 @@ runs:
           echo "--- Cleaning up: $ENV_NAME ---"
           ENV_SUCCESS=true
 
-          # 1. Delete ZAD deployment (V2 async with retry)
-          if curl_with_retry "$API_BASE_URL/v2/projects/$PROJECT_ID/$ENV_NAME" \
-              -X DELETE \
-              -H "X-API-Key: $ZAD_API_KEY"; then
-            TASK_ID=$(echo "$FINAL_BODY" | jq -r '.task_id' 2>/dev/null)
-            POLL_URL=$(echo "$FINAL_BODY" | jq -r '.poll_url' 2>/dev/null)
-            echo "Delete task accepted for '$ENV_NAME' (ID: $TASK_ID)"
+          # 1. Delete ZAD deployment (shared helper handles retry, polling, 404, error reporting)
+          zad_delete_deployment "$ENV_NAME"
 
-            FULL_POLL_URL=$(build_poll_url "$POLL_URL")
-
-            if poll_task "$FULL_POLL_URL"; then
-              echo "ZAD deployment '$ENV_NAME' deleted"
-            else
-              echo "::error::Delete task for '$ENV_NAME' did not complete successfully"
-              ENV_SUCCESS=false
-            fi
-          elif [ "$FINAL_HTTP_CODE" -eq 404 ]; then
-            echo "ZAD deployment '$ENV_NAME' not found (already deleted)"
-            ENV_SUCCESS=false
+          if [ "$DELETE_RESULT" = "true" ]; then
+            echo "ZAD deployment '$ENV_NAME' deleted"
+          elif [ "$DELETE_REASON" = "not_found" ]; then
+            echo "ZAD deployment '$ENV_NAME' not found (already clean)"
           else
-            echo "::warning::Failed to delete ZAD deployment '$ENV_NAME' (HTTP $FINAL_HTTP_CODE)"
             ENV_SUCCESS=false
           fi
 

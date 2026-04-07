@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed
+- **all actions**: Replace curl+bash API layer with [zad-cli](https://github.com/RijksICTGilde/zad-cli) (pinned to v0.1.1)
+  - **deploy**: ~200 lines of curl/jq/polling replaced by single `zad deployment create` call
+  - **cleanup**: ~80 lines of curl/polling replaced by single `zad deployment delete` call
+  - **scheduled-cleanup**: same inline curl/polling replaced by shared `zad_delete_deployment` helper
+  - Retry logic, task polling, and error handling now delegated to the CLI
+  - Net reduction: ~310 lines of duplicated bash
+- **scripts/zad-common.sh**: Rewritten — `curl_with_retry`, `poll_task`, and `build_poll_url` replaced by `install_zad_cli`, `validate_input`, `validate_integer`, `report_zad_error`, and `zad_delete_deployment`
+- **all actions**: ZAD configuration now uses `ZAD_*` env vars (`ZAD_API_URL`, `ZAD_PROJECT_ID`, `ZAD_MAX_RETRIES`, `ZAD_RETRY_DELAY`, `ZAD_TASK_TIMEOUT`, `ZAD_TASK_POLL_INTERVAL`) consumed directly by the CLI
+
+### Added
+- **all actions**: `astral-sh/setup-uv` step to ensure `uv` is available on GitHub runners
+- **all actions**: `$HOME/.local/bin` added to `GITHUB_PATH` after install so `zad` is available across steps
+
+### Fixed
+- **all actions**: `validate_input` and `validate_integer` now `exit 1` instead of `return 1` (validation failures were silently ignored without `set -e`)
+- **scheduled-cleanup**: Add missing `validate_input "project-id"` check (was present in deploy and cleanup but missing here)
+- **all actions**: Improve error message when CLI fails with no HTTP status code
+
 ## [3.2.0] - 2026-03-20
 
 ### Added

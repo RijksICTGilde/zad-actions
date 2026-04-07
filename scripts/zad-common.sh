@@ -4,14 +4,16 @@
 # Source this file from composite action steps.
 
 # Install zad-cli if not already available.
-# Uses pip (available on all GitHub runners) to avoid curl|sh.
+# Pin to a specific version tag to prevent breaking changes.
+ZAD_CLI_VERSION="v0.1.1"
+
 install_zad_cli() {
   if command -v zad >/dev/null 2>&1; then
     echo "zad-cli already installed: $(zad version 2>/dev/null || echo 'unknown')"
     return 0
   fi
-  echo "Installing zad-cli..."
-  pip install --quiet git+https://github.com/RijksICTGilde/zad-cli.git
+  echo "Installing zad-cli@${ZAD_CLI_VERSION}..."
+  uv tool install "git+https://github.com/RijksICTGilde/zad-cli.git@${ZAD_CLI_VERSION}"
 }
 
 # Parse zad-cli JSON error output and emit GitHub Actions annotations.

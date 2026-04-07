@@ -147,6 +147,10 @@ runs:
         done
         echo "skipped=false" >> "$GITHUB_OUTPUT"
 
+    - name: Setup uv
+      if: steps.bot-check.outputs.skipped != 'true'
+      uses: astral-sh/setup-uv@v6
+
     - name: Install zad-cli
       if: steps.bot-check.outputs.skipped != 'true'
       shell: bash

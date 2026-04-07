@@ -15,11 +15,19 @@ install_zad_cli() {
   echo "Installing zad-cli@${ZAD_CLI_VERSION}..."
   if ! uv tool install "git+https://github.com/RijksICTGilde/zad-cli.git@${ZAD_CLI_VERSION}"; then
     echo "::error::Failed to install zad-cli@${ZAD_CLI_VERSION}"
-    return 1
+    exit 1
   fi
+  # Ensure uv tool bin directory is on PATH for subsequent steps
+  UV_TOOL_BIN=$(uv tool dir 2>/dev/null)/../bin
+  if [ -d "$HOME/.local/bin" ]; then
+    echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+  elif [ -n "$UV_TOOL_BIN" ] && [ -d "$UV_TOOL_BIN" ]; then
+    echo "$UV_TOOL_BIN" >> "$GITHUB_PATH"
+  fi
+  export PATH="$HOME/.local/bin:$PATH"
   if ! command -v zad >/dev/null 2>&1; then
     echo "::error::zad-cli installed but 'zad' command not found in PATH"
-    return 1
+    exit 1
   fi
 }
 
@@ -30,11 +38,11 @@ validate_input() {
   if [ -z "$value" ]; then
     if [ "$allow_empty" = "true" ]; then return 0; fi
     echo "Error: $name is required"
-    return 1
+    exit 1
   fi
   if ! echo "$value" | grep -qE '^[a-zA-Z0-9._-]+$'; then
     echo "Error: $name contains invalid characters (allowed: a-z, A-Z, 0-9, ., _, -)"
-    return 1
+    exit 1
   fi
 }
 
@@ -44,7 +52,7 @@ validate_integer() {
   local name="$1" value="$2"
   if ! echo "$value" | grep -qE '^[0-9]+$'; then
     echo "Error: $name must be a non-negative integer"
-    return 1
+    exit 1
   fi
 }
 
@@ -75,8 +83,8 @@ report_zad_error() {
       if [ -n "$error_msg" ]; then
         echo "::error::${operation} failed: $error_msg"
       else
-        echo "::error::${operation} failed: Unable to connect to ZAD API"
-        echo "::error::This could be a network issue or the API may be unavailable"
+        echo "::error::${operation} failed with no HTTP status code"
+        echo "::error::This could be a network issue, timeout, or CLI error"
       fi
       ;;
     401)

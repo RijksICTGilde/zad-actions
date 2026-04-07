@@ -249,6 +249,10 @@ runs:
         # Write stale list to temp file for next step
         echo "$STALE_ENVS" > "$RUNNER_TEMP/stale-envs.txt"
 
+    - name: Setup uv
+      if: steps.find-stale.outputs.stale-count != '0'
+      uses: astral-sh/setup-uv@v6
+
     - name: Install zad-cli
       if: steps.find-stale.outputs.stale-count != '0'
       shell: bash
@@ -284,7 +288,8 @@ runs:
         # shellcheck source=../scripts/zad-common.sh
         source "$GITHUB_ACTION_PATH/../scripts/zad-common.sh"
 
-        # Validate numeric inputs
+        # Validate inputs
+        validate_input "project-id" "$ZAD_PROJECT_ID"
         validate_integer "max-retries" "$ZAD_MAX_RETRIES"
         validate_integer "retry-delay" "$ZAD_RETRY_DELAY"
         validate_integer "task-timeout" "$ZAD_TASK_TIMEOUT"

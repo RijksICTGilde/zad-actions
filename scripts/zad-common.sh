@@ -5,7 +5,7 @@
 
 # Install zad-cli if not already available.
 # Pin to a specific version tag to prevent breaking changes.
-ZAD_CLI_VERSION="v0.1.2"
+ZAD_CLI_VERSION="v0.2.1"
 
 install_zad_cli() {
   if command -v zad >/dev/null 2>&1; then

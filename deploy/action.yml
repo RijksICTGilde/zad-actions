@@ -182,7 +182,19 @@ runs:
         # shellcheck source=../scripts/zad-common.sh
         source "$GITHUB_ACTION_PATH/../scripts/zad-common.sh"
 
-        # Determine mode and validate inputs
+        # Validate inputs FIRST (before logging, to prevent injection)
+        validate_input "project-id" "$ZAD_PROJECT_ID"
+        validate_input "deployment-name" "$DEPLOYMENT_NAME"
+        validate_input "clone-from" "$CLONE_FROM" true
+        validate_integer "max-retries" "$ZAD_MAX_RETRIES"
+        validate_integer "retry-delay" "$ZAD_RETRY_DELAY"
+        validate_integer "task-timeout" "$ZAD_TASK_TIMEOUT"
+        validate_integer "task-poll-interval" "$ZAD_TASK_POLL_INTERVAL"
+        validate_input "domain-format" "$DOMAIN_FORMAT" true
+        validate_input "subdomain" "$SUBDOMAIN" true
+        validate_input "base-domain" "$BASE_DOMAIN" true
+
+        # Determine mode and validate component inputs
         MULTI_COMPONENT=false
         if [ -n "$COMPONENTS" ]; then
           MULTI_COMPONENT=true
@@ -205,8 +217,14 @@ runs:
             echo "Error: each component must have a non-empty 'name' and 'image'"
             exit 1
           fi
+
+          BAD_NAMES=$(echo "$COMPONENTS" | jq -r '.[].name' | grep -vE '^[a-zA-Z0-9._-]+$' || true)
+          if [ -n "$BAD_NAMES" ]; then
+            echo "Error: component name(s) contain invalid characters: $BAD_NAMES"
+            exit 1
+          fi
         elif [ -n "$COMPONENT" ] && [ -n "$IMAGE" ]; then
-          : # single-component mode
+          validate_input "component" "$COMPONENT"
         else
           echo "Error: either 'components' or both 'component' and 'image' must be provided"
           exit 1

@@ -161,6 +161,14 @@ runs:
         # shellcheck source=../scripts/zad-common.sh
         source "$GITHUB_ACTION_PATH/../scripts/zad-common.sh"
 
+        # Validate inputs FIRST (before logging, to prevent injection)
+        validate_input "project-id" "$ZAD_PROJECT_ID"
+        validate_input "deployment-name" "$DEPLOYMENT_NAME"
+        validate_integer "max-retries" "$ZAD_MAX_RETRIES"
+        validate_integer "retry-delay" "$ZAD_RETRY_DELAY"
+        validate_integer "task-timeout" "$ZAD_TASK_TIMEOUT"
+        validate_integer "task-poll-interval" "$ZAD_TASK_POLL_INTERVAL"
+
         echo "Deleting ZAD deployment: $DEPLOYMENT_NAME from project: $ZAD_PROJECT_ID"
 
         zad_delete_deployment "$DEPLOYMENT_NAME"

@@ -13,7 +13,39 @@ install_zad_cli() {
     return 0
   fi
   echo "Installing zad-cli@${ZAD_CLI_VERSION}..."
-  uv tool install "git+https://github.com/RijksICTGilde/zad-cli.git@${ZAD_CLI_VERSION}"
+  if ! uv tool install "git+https://github.com/RijksICTGilde/zad-cli.git@${ZAD_CLI_VERSION}"; then
+    echo "::error::Failed to install zad-cli@${ZAD_CLI_VERSION}"
+    return 1
+  fi
+  if ! command -v zad >/dev/null 2>&1; then
+    echo "::error::zad-cli installed but 'zad' command not found in PATH"
+    return 1
+  fi
+}
+
+# Validate that a value matches the allowed character pattern.
+# Usage: validate_input <name> <value> [allow_empty]
+validate_input() {
+  local name="$1" value="$2" allow_empty="${3:-false}"
+  if [ -z "$value" ]; then
+    if [ "$allow_empty" = "true" ]; then return 0; fi
+    echo "Error: $name is required"
+    return 1
+  fi
+  if ! echo "$value" | grep -qE '^[a-zA-Z0-9._-]+$'; then
+    echo "Error: $name contains invalid characters (allowed: a-z, A-Z, 0-9, ., _, -)"
+    return 1
+  fi
+}
+
+# Validate that a value is a non-negative integer.
+# Usage: validate_integer <name> <value>
+validate_integer() {
+  local name="$1" value="$2"
+  if ! echo "$value" | grep -qE '^[0-9]+$'; then
+    echo "Error: $name must be a non-negative integer"
+    return 1
+  fi
 }
 
 # Parse zad-cli JSON error output and emit GitHub Actions annotations.
@@ -26,6 +58,13 @@ report_zad_error() {
   local operation="$1"
   local cli_stdout="$2"
   local project_id="$3"
+
+  # Guard against non-JSON output (CLI crash, command not found, Python traceback)
+  if ! echo "$cli_stdout" | jq empty 2>/dev/null; then
+    echo "::error::${operation} failed: unexpected CLI output (not JSON)"
+    echo "::error::CLI output: $cli_stdout"
+    return
+  fi
 
   local status_code error_msg
   status_code=$(echo "$cli_stdout" | jq -r '.status_code // 0' 2>/dev/null || echo "0")
@@ -70,6 +109,10 @@ report_zad_error() {
 zad_delete_deployment() {
   local deployment_name="$1"
 
+  # Reset state (prevents stale values when called in a loop)
+  DELETE_RESULT="false"
+  DELETE_REASON=""
+
   local result zad_exit
   result=$(zad --output json deployment delete "$deployment_name" --yes --ignore-not-found) && zad_exit=0 || zad_exit=$?
 
@@ -77,16 +120,14 @@ zad_delete_deployment() {
     local reason
     reason=$(echo "$result" | jq -r '.reason // empty' 2>/dev/null)
     if [ "$reason" = "not_found" ]; then
-      DELETE_RESULT="false"
       DELETE_REASON="not_found"
     else
       DELETE_RESULT="true"
-      DELETE_REASON=""
     fi
   else
-    DELETE_RESULT="false"
     DELETE_REASON="error"
-    # Use warning level (cleanup failures are non-fatal)
+    # Use warning (not error) — cleanup failures are non-fatal
+    echo "::warning::Failed to delete ZAD deployment '$deployment_name'"
     report_zad_error "Delete '$deployment_name'" "$result" "${ZAD_PROJECT_ID:-unknown}"
   fi
 }

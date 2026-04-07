@@ -284,6 +284,12 @@ runs:
         # shellcheck source=../scripts/zad-common.sh
         source "$GITHUB_ACTION_PATH/../scripts/zad-common.sh"
 
+        # Validate numeric inputs
+        validate_integer "max-retries" "$ZAD_MAX_RETRIES"
+        validate_integer "retry-delay" "$ZAD_RETRY_DELAY"
+        validate_integer "task-timeout" "$ZAD_TASK_TIMEOUT"
+        validate_integer "task-poll-interval" "$ZAD_TASK_POLL_INTERVAL"
+
         # Re-validate pr-number-pattern (defense-in-depth, also validated in find-stale step)
         if ! echo "$PR_NUMBER_PATTERN" | grep -qE '^s/'; then
           echo "Error: pr-number-pattern must be a sed substitution expression (starting with 's/')"

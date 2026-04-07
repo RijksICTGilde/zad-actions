@@ -44,7 +44,7 @@ Removes a ZAD deployment and optionally cleans up associated GitHub resources (e
 
 ```yaml
 - name: Cleanup ZAD deployment
-  uses: RijksICTGilde/zad-actions/cleanup@v3
+  uses: RijksICTGilde/zad-actions/cleanup@v4
   with:
     api-key: ${{ secrets.ZAD_API_KEY }}
     project-id: regel-k4c
@@ -55,7 +55,7 @@ Removes a ZAD deployment and optionally cleans up associated GitHub resources (e
 
 ```yaml
 - name: Full cleanup
-  uses: RijksICTGilde/zad-actions/cleanup@v3
+  uses: RijksICTGilde/zad-actions/cleanup@v4
   with:
     api-key: ${{ secrets.ZAD_API_KEY }}
     project-id: regel-k4c
@@ -73,7 +73,7 @@ Removes a ZAD deployment and optionally cleans up associated GitHub resources (e
 
 ```yaml
 - name: Full cleanup
-  uses: RijksICTGilde/zad-actions/cleanup@v3
+  uses: RijksICTGilde/zad-actions/cleanup@v4
   with:
     api-key: ${{ secrets.ZAD_API_KEY }}
     project-id: my-project
@@ -98,7 +98,7 @@ cleanup-preview:
     pull-requests: write  # For delete-pr-comment
   steps:
     - name: Cleanup PR preview
-      uses: RijksICTGilde/zad-actions/cleanup@v3
+      uses: RijksICTGilde/zad-actions/cleanup@v4
       with:
         api-key: ${{ secrets.ZAD_API_KEY }}
         project-id: my-project
@@ -118,7 +118,7 @@ cleanup-preview:
 When used with the deploy action's `comment-on-pr` feature, the cleanup action can remove the PR comment when the deployment is cleaned up:
 
 ```yaml
-- uses: RijksICTGilde/zad-actions/cleanup@v3
+- uses: RijksICTGilde/zad-actions/cleanup@v4
   with:
     api-key: ${{ secrets.ZAD_API_KEY }}
     project-id: my-project
@@ -157,7 +157,7 @@ permissions:
 For automated periodic cleanup of stale PR environments, use the dedicated [scheduled-cleanup](../scheduled-cleanup) action instead of scripting it manually. It handles environment discovery, PR state checking, and cleanup with retry logic built in.
 
 ```yaml
-- uses: RijksICTGilde/zad-actions/scheduled-cleanup@v3
+- uses: RijksICTGilde/zad-actions/scheduled-cleanup@v4
   with:
     api-key: ${{ secrets.ZAD_API_KEY }}
     project-id: my-project
@@ -175,7 +175,7 @@ Check cleanup results and take action:
 ```yaml
 - name: Cleanup deployment
   id: cleanup
-  uses: RijksICTGilde/zad-actions/cleanup@v3
+  uses: RijksICTGilde/zad-actions/cleanup@v4
   with:
     api-key: ${{ secrets.ZAD_API_KEY }}
     project-id: my-project

@@ -57,7 +57,7 @@ jobs:
       packages: write
       pull-requests: read
     steps:
-      - uses: RijksICTGilde/zad-actions/scheduled-cleanup@v3
+      - uses: RijksICTGilde/zad-actions/scheduled-cleanup@v4
         with:
           api-key: ${{ secrets.ZAD_API_KEY }}
           project-id: my-project
@@ -73,7 +73,7 @@ jobs:
 Test what would be cleaned up without actually deleting anything:
 
 ```yaml
-- uses: RijksICTGilde/zad-actions/scheduled-cleanup@v3
+- uses: RijksICTGilde/zad-actions/scheduled-cleanup@v4
   with:
     api-key: ${{ secrets.ZAD_API_KEY }}
     project-id: my-project
@@ -85,7 +85,7 @@ Test what would be cleaned up without actually deleting anything:
 Clean up environments older than 30 days, even if the PR is still open:
 
 ```yaml
-- uses: RijksICTGilde/zad-actions/scheduled-cleanup@v3
+- uses: RijksICTGilde/zad-actions/scheduled-cleanup@v4
   with:
     api-key: ${{ secrets.ZAD_API_KEY }}
     project-id: my-project
@@ -97,7 +97,7 @@ Clean up environments older than 30 days, even if the PR is still open:
 If your environments use a different naming convention (e.g., `preview-123`):
 
 ```yaml
-- uses: RijksICTGilde/zad-actions/scheduled-cleanup@v3
+- uses: RijksICTGilde/zad-actions/scheduled-cleanup@v4
   with:
     api-key: ${{ secrets.ZAD_API_KEY }}
     project-id: my-project

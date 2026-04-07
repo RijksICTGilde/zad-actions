@@ -96,7 +96,7 @@ jobs:
     steps:
       - name: Deploy to ZAD
         id: deploy
-        uses: RijksICTGilde/zad-actions/deploy@v3
+        uses: RijksICTGilde/zad-actions/deploy@v4
         with:
           api-key: ${{ secrets.ZAD_API_KEY }}
           project-id: <project-id>
@@ -121,7 +121,7 @@ jobs:
     steps:
       - name: Deploy to ZAD
         id: deploy
-        uses: RijksICTGilde/zad-actions/deploy@v3
+        uses: RijksICTGilde/zad-actions/deploy@v4
         with:
           api-key: ${{ secrets.ZAD_API_KEY }}
           project-id: <project-id>
@@ -145,7 +145,7 @@ jobs:
       pull-requests: write
     steps:
       - name: Cleanup
-        uses: RijksICTGilde/zad-actions/cleanup@v3
+        uses: RijksICTGilde/zad-actions/cleanup@v4
         with:
           api-key: ${{ secrets.ZAD_API_KEY }}
           project-id: <project-id>
@@ -173,7 +173,7 @@ jobs:
       pull-requests: write
     steps:
       - name: Cleanup
-        uses: RijksICTGilde/zad-actions/cleanup@v3
+        uses: RijksICTGilde/zad-actions/cleanup@v4
         with:
           api-key: ${{ secrets.ZAD_API_KEY }}
           project-id: <project-id>
@@ -198,7 +198,7 @@ jobs:
       packages: write
       pull-requests: read
     steps:
-      - uses: RijksICTGilde/zad-actions/scheduled-cleanup@v3
+      - uses: RijksICTGilde/zad-actions/scheduled-cleanup@v4
         with:
           api-key: ${{ secrets.ZAD_API_KEY }}
           project-id: <project-id>

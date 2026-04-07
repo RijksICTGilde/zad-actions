@@ -21,7 +21,7 @@ Reusable GitHub Actions for deploying to [ZAD](https://github.com/RijksICTGilde/
 
 ```yaml
 - name: Deploy to ZAD
-  uses: RijksICTGilde/zad-actions/deploy@v3
+  uses: RijksICTGilde/zad-actions/deploy@v4
   with:
     api-key: ${{ secrets.ZAD_API_KEY }}
     project-id: my-project
@@ -34,7 +34,7 @@ Reusable GitHub Actions for deploying to [ZAD](https://github.com/RijksICTGilde/
 
 ```yaml
 - name: Deploy to ZAD
-  uses: RijksICTGilde/zad-actions/deploy@v3
+  uses: RijksICTGilde/zad-actions/deploy@v4
   with:
     api-key: ${{ secrets.ZAD_API_KEY }}
     project-id: my-project
@@ -50,7 +50,7 @@ Reusable GitHub Actions for deploying to [ZAD](https://github.com/RijksICTGilde/
 
 ```yaml
 - name: Cleanup ZAD deployment
-  uses: RijksICTGilde/zad-actions/cleanup@v3
+  uses: RijksICTGilde/zad-actions/cleanup@v4
   with:
     api-key: ${{ secrets.ZAD_API_KEY }}
     project-id: my-project
@@ -69,7 +69,7 @@ Reusable GitHub Actions for deploying to [ZAD](https://github.com/RijksICTGilde/
 
 ```yaml
 - name: Cleanup ZAD deployment
-  uses: RijksICTGilde/zad-actions/cleanup@v3
+  uses: RijksICTGilde/zad-actions/cleanup@v4
   with:
     api-key: ${{ secrets.ZAD_API_KEY }}
     project-id: my-project
@@ -100,7 +100,7 @@ jobs:
       packages: write
       pull-requests: read
     steps:
-      - uses: RijksICTGilde/zad-actions/scheduled-cleanup@v3
+      - uses: RijksICTGilde/zad-actions/scheduled-cleanup@v4
         with:
           api-key: ${{ secrets.ZAD_API_KEY }}
           project-id: my-project
@@ -178,7 +178,7 @@ jobs:
     steps:
       - name: Deploy to ZAD
         id: deploy
-        uses: RijksICTGilde/zad-actions/deploy@v3
+        uses: RijksICTGilde/zad-actions/deploy@v4
         with:
           api-key: ${{ secrets.ZAD_API_KEY }}
           project-id: my-project
@@ -195,7 +195,7 @@ jobs:
       packages: write
     steps:
       - name: Cleanup
-        uses: RijksICTGilde/zad-actions/cleanup@v3
+        uses: RijksICTGilde/zad-actions/cleanup@v4
         with:
           api-key: ${{ secrets.ZAD_API_KEY }}
           project-id: my-project
@@ -219,7 +219,7 @@ jobs:
     steps:
       - name: Deploy to ZAD
         id: deploy
-        uses: RijksICTGilde/zad-actions/deploy@v3
+        uses: RijksICTGilde/zad-actions/deploy@v4
         with:
           api-key: ${{ secrets.ZAD_API_KEY }}
           project-id: my-project
@@ -230,9 +230,8 @@ jobs:
 
 ## ZAD Operations Manager API
 
-These actions use the ZAD Operations Manager V2 async API. Operations are submitted as tasks and polled for completion.
+These actions use [zad-cli](https://github.com/RijksICTGilde/zad-cli) to interact with the ZAD Operations Manager API. The CLI handles retries, task polling, and error reporting.
 
-- **Base URL**: `https://operations-manager.rig.prd1.gn2.quattro.rijksapps.nl/api/v2`
 - **API Docs**: `https://operations-manager.rig.prd1.gn2.quattro.rijksapps.nl/docs`
 
 ### URL Pattern

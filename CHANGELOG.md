@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+- Bump zad-cli from v0.3.0 to v0.5.0 (v2 deployment read endpoints, mutation confirmations, faster `describe`, plus error/validation fixes)
 - Bump `softprops/action-gh-release` from v2 to v3 in release workflow (moves release job to Node 24 runtime)
 
 ## [4.0.3] - 2026-04-21

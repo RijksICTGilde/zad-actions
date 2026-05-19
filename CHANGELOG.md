@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.0.5] - 2026-05-19
+
 ### Changed
 - Bump zad-cli from v0.5.0 to v0.6.0 (restore deployment, pvc-snapshots and admin commands, async admin delete, syncs with upstream ZAD API changes from 2026-05-18; zad-cli drops the `-s` alias and renders list commands as tables, but the actions do not parse that output so no behaviour change here)
 

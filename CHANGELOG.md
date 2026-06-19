@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.0.6] - 2026-06-19
+
+### Changed
+- Bump zad-cli from v0.6.0 to v0.8.0 (admin orphan-report/orphan-confirm commands, and a new structured error diagnosis layer with source labels, next-step suggestions and CI exit codes 1/2/3)
+- Update `report_zad_error` to read zad-cli's new diagnosis JSON (`headline`, `summary`, `next_steps`) so error annotations surface the cause and remediation; falls back to the old flat `error` field for version skew. Network/unknown failures (HTTP status 0) now keep their message instead of dropping it.
+
 ## [4.0.5] - 2026-05-19
 
 ### Changed

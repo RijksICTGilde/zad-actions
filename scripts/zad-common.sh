@@ -5,7 +5,7 @@
 
 # Install zad-cli if not already available.
 # Pin to a specific version tag to prevent breaking changes.
-ZAD_CLI_VERSION="v0.6.0"
+ZAD_CLI_VERSION="v0.8.0"
 
 install_zad_cli() {
   if command -v zad >/dev/null 2>&1; then
@@ -61,8 +61,11 @@ validate_integer() {
 #
 # Usage: report_zad_error <operation> <cli_stdout> <project-id>
 #
-# The CLI outputs JSON errors to stdout in --output json mode:
-#   {"error": "HTTP 401: ...", "status_code": 401}
+# zad-cli >= v0.7.0 outputs a structured diagnosis to stdout in --output json mode:
+#   {"fault": "Auth", "headline": "Authentication failed (HTTP 401).",
+#    "summary": "...", "next_steps": ["..."], "status_code": 401}
+# Older CLIs used a flat {"error": "HTTP 401: ...", "status_code": 401}; we fall
+# back to that shape so a version skew never swallows the message.
 report_zad_error() {
   local operation="$1"
   local cli_stdout="$2"
@@ -75,14 +78,16 @@ report_zad_error() {
     return
   fi
 
-  local status_code error_msg
+  local status_code headline summary
   status_code=$(echo "$cli_stdout" | jq -r '.status_code // 0' 2>/dev/null || echo "0")
-  error_msg=$(echo "$cli_stdout" | jq -r '.error // empty' 2>/dev/null || echo "")
+  # Prefer the new diagnosis headline; fall back to the old flat .error field.
+  headline=$(echo "$cli_stdout" | jq -r '.headline // .error // empty' 2>/dev/null || echo "")
+  summary=$(echo "$cli_stdout" | jq -r '.summary // empty' 2>/dev/null || echo "")
 
   case "$status_code" in
     0)
-      if [ -n "$error_msg" ]; then
-        echo "::error::${operation} failed: $error_msg"
+      if [ -n "$headline" ]; then
+        echo "::error::${operation} failed: $headline"
       else
         echo "::error::${operation} failed with no HTTP status code"
         echo "::error::This could be a network issue, timeout, or CLI error"
@@ -104,10 +109,22 @@ report_zad_error() {
       if [ "$status_code" -ge 500 ] 2>/dev/null; then
         echo "::error::${operation} failed: ZAD API server error (HTTP $status_code) after retries"
       else
-        echo "::error::${operation} failed (HTTP $status_code): $error_msg"
+        echo "::error::${operation} failed (HTTP $status_code): ${headline:-error}"
       fi
       ;;
   esac
+
+  # Surface the backend's own summary and remediation, when present.
+  if [ -n "$summary" ] && [ "$summary" != "$headline" ]; then
+    echo "::error::Details: $summary"
+  fi
+  local steps
+  steps=$(echo "$cli_stdout" | jq -r '.next_steps[]? // empty' 2>/dev/null || echo "")
+  if [ -n "$steps" ]; then
+    while IFS= read -r step; do
+      [ -n "$step" ] && echo "::error::Next step: $step"
+    done <<< "$steps"
+  fi
 }
 
 # Delete a ZAD deployment via CLI, handling not-found gracefully.

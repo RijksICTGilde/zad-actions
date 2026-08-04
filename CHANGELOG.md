@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Internal
+- Dependabot waits five days before proposing a new action version (`cooldown.default-days: 5`), raising the built-in three-day default so a compromised release has more time to be spotted. Security updates are exempt and still arrive immediately. No effect on the published actions.
+
 ## [4.0.6] - 2026-06-19
 
 ### Changed

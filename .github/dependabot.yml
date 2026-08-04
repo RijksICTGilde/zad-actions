@@ -1,9 +1,34 @@
 version: 2
+
+# Cooldown: a release has to be five days old before Dependabot opens a version
+# update for it. Dependabot's own default has been three days since 2026-07-14;
+# raising it here also records the choice, so a future change to that default
+# cannot silently shrink the window.
+#
+# Five days is the window we use across our repos, calibrated on registry
+# compromises where a malicious *new release* was published (chalk/debug,
+# shai-hulud, keyv/cacheable): those were all detected within hours to days.
+# With `interval: weekly` the practical delay is "at least five days, at most
+# until the next weekly run".
+#
+# Be honest about what that does not cover here. The dominant Actions-side
+# incident, tj-actions/changed-files (CVE-2025-30066), was a tag *retargeting*:
+# existing version tags were repointed at a malicious commit, so there was no
+# new release for Dependabot to propose and no cooldown window to wait out.
+# Our workflows pin by floating major tag, so that attack reaches CI
+# immediately and cooldown does nothing about it. Only SHA pinning closes it -
+# Dependabot maintains SHA pins fine, and that is worth doing separately.
+#
+# This applies to version updates only. Dependabot *security* updates are
+# exempt from cooldown and keep opening immediately, so advisory fixes are not
+# delayed by this.
 updates:
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
       interval: "weekly"
+    cooldown:
+      default-days: 5
     labels:
       - "dependencies"
     groups:

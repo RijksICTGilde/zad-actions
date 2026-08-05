@@ -20,6 +20,7 @@ Deploys a container image to ZAD Operations Manager.
 | `comment-header` | No | `## 🚀 Preview Deployment` | Custom header for the PR comment |
 | `wait-for-ready` | No | `false` | Wait for deployment to be reachable |
 | `health-endpoint` | No | `/` | Endpoint to check for readiness |
+| `health-status-codes` | No | `200-399,401,403` | Comma-separated HTTP codes/ranges that count as ready (see [Readiness Status Codes](#readiness-status-codes)) |
 | `wait-timeout` | No | `300` | Maximum wait time in seconds |
 | `wait-interval` | No | `10` | Seconds between readiness checks |
 | `qr-code` | No | `false` | Include QR code for mobile access (generated locally via qrencode) |
@@ -331,6 +332,29 @@ Wait for deployment to be healthy using the built-in `wait-for-ready` feature:
     image: ghcr.io/org/app:latest
     wait-for-ready: true
     health-endpoint: /health
+```
+
+### Readiness Status Codes
+
+The readiness check treats `200-399`, `401` and `403` as ready. An app behind authentication answers
+the health check with `401` or `403`, which still proves it is up and serving — only a network error,
+a `404`, or a `5xx` keeps the check pending.
+
+Override with `health-status-codes` when your app needs stricter or different codes. Accepts single
+codes and ranges, comma-separated:
+
+```yaml
+- name: Deploy to ZAD
+  uses: RijksICTGilde/zad-actions/deploy@v4
+  with:
+    api-key: ${{ secrets.ZAD_API_KEY }}
+    project-id: my-project
+    deployment-name: production
+    component: web
+    image: ghcr.io/org/app:latest
+    wait-for-ready: true
+    health-endpoint: /health
+    health-status-codes: '200,204'
 ```
 
 ## Retry Behavior

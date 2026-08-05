@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `deploy`: new `health-status-codes` input to control which HTTP codes the `wait-for-ready` check accepts. Takes single codes and ranges (e.g. `200,204` or `200-399,401`)
+
+### Fixed
+- `deploy`: the `wait-for-ready` check no longer fails deployments that sit behind authentication. `401` and `403` now count as ready by default, since an auth challenge proves the app is serving; previously only `200-399` passed and such deployments timed out
+
 ### Internal
 - Dependabot waits five days before proposing a new action version (`cooldown.default-days: 5`), raising the built-in three-day default so a compromised release has more time to be spotted. Security updates are exempt and still arrive immediately. No effect on the published actions.
 

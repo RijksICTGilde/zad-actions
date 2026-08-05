@@ -69,6 +69,12 @@ inputs:
     description: 'Endpoint to check for readiness (e.g., /, /health)'
     required: false
     default: '/'
+  health-status-codes:
+    description: >-
+      Comma-separated HTTP codes/ranges that count as ready (e.g. "200-399,401,403").
+      401/403 are included by default because an auth challenge proves the app is serving.
+    required: false
+    default: '200-399,401,403'
   wait-timeout:
     description: 'Maximum time to wait for deployment in seconds'
     required: false
@@ -332,9 +338,39 @@ runs:
         DEPLOYMENT_URLS: ${{ steps.deploy.outputs.urls }}
         COMPONENTS: ${{ inputs.components }}
         HEALTH_ENDPOINT: ${{ inputs.health-endpoint }}
+        HEALTH_STATUS_CODES: ${{ inputs.health-status-codes }}
         WAIT_TIMEOUT: ${{ inputs.wait-timeout }}
         WAIT_INTERVAL: ${{ inputs.wait-interval }}
       run: |
+        # Validate the accepted status codes before using them
+        CODE_SPEC="${HEALTH_STATUS_CODES// /}"
+        if ! echo "$CODE_SPEC" | grep -qE '^[1-5][0-9]{2}(-[1-5][0-9]{2})?(,[1-5][0-9]{2}(-[1-5][0-9]{2})?)*$'; then
+          echo "::error::Invalid health-status-codes: expected codes or ranges like '200-399,401,403'"
+          exit 1
+        fi
+
+        # Does an observed HTTP code match the accepted spec?
+        is_healthy_code() {
+          local code="$1" spec lo hi
+          local -a SPECS
+          IFS=',' read -ra SPECS <<< "$CODE_SPEC"
+          for spec in "${SPECS[@]}"; do
+            case "$spec" in
+              *-*)
+                lo="${spec%%-*}"
+                hi="${spec##*-}"
+                if [ "$code" -ge "$lo" ] && [ "$code" -le "$hi" ]; then return 0; fi
+                ;;
+              *)
+                if [ "$code" -eq "$spec" ]; then return 0; fi
+                ;;
+            esac
+          done
+          return 1
+        }
+
+        echo "Accepting HTTP status codes: $CODE_SPEC"
+
         # Build list of URLs to check (tab-separated: name\turl)
         if [ -n "$COMPONENTS" ] && [ -n "$DEPLOYMENT_URLS" ]; then
           PENDING=$(echo "$DEPLOYMENT_URLS" | jq -r 'to_entries[] | "\(.key)\t\(.value)"')
@@ -348,7 +384,7 @@ runs:
           STILL_PENDING=""
           while IFS=$'\t' read -r name url; do
             HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 "${url}${HEALTH_ENDPOINT}" || echo "000")
-            if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 400 ]; then
+            if is_healthy_code "$HTTP_CODE"; then
               echo "$name is ready (HTTP $HTTP_CODE)"
             else
               STILL_PENDING+="${name}\t${url}\n"

@@ -58,7 +58,8 @@ All three actions retry transient ZAD API errors (000, 429, 500-504) with expone
 
 | Symptom | Diagnosis | Fix |
 |---------|-----------|-----|
-| Timeout waiting for deployment | Container not starting or slow startup | Increase `wait-timeout` (default: 300s). Check container logs in ZAD. Verify `health-endpoint` returns HTTP 2xx/3xx |
+| Timeout waiting for deployment | Container not starting or slow startup | Increase `wait-timeout` (default: 300s). Check container logs in ZAD. Verify `health-endpoint` returns an accepted code (default `200-399`, `401`, `403`) |
+| Timeout while the endpoint answers 4xx | Health endpoint returns a code outside the accepted set (e.g. `404` on the path, or a custom auth code) | Point `health-endpoint` at a path the app actually serves, or widen `health-status-codes` (e.g. `200-399,401,403,404`) |
 | HTTP 502/503 from health endpoint | Container crashing or not listening on correct port | Check container listens on the expected port. Verify environment variables are set correctly in ZAD |
 
 ### GitHub environment deletion errors

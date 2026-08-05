@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.1.0] - 2026-08-05
+
 ### Added
 - `deploy`: new `health-status-codes` input to control which HTTP codes the `wait-for-ready` check accepts. Takes single codes and ranges (e.g. `200,204` or `200-399,401`)
 

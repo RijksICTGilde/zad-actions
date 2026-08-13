@@ -264,8 +264,13 @@ runs:
         # Build zad CLI command
         ZAD_CMD=(zad --output json deployment create "$DEPLOYMENT_NAME" --yes)
 
+        # --components is deprecated in the CLI ("use -f/--file instead") and will go in a
+        # later major. -f - takes the same list as a document on stdin and produces an
+        # identical request, so this stops depending on a flag that is on its way out.
+        MANIFEST=""
         if [ "$MULTI_COMPONENT" = "true" ]; then
-          ZAD_CMD+=(--components "$COMPONENTS")
+          MANIFEST=$(jq -nc --argjson c "$COMPONENTS" '{components: $c}')
+          ZAD_CMD+=(--file -)
         else
           ZAD_CMD+=(--component "$COMPONENT" --image "$IMAGE")
         fi
@@ -288,7 +293,11 @@ runs:
 
         # Execute CLI (retry, polling, error handling all built in)
         # In --output json mode, errors go to stdout as JSON with status_code
-        RESULT=$("${ZAD_CMD[@]}") && ZAD_EXIT=0 || ZAD_EXIT=$?
+        if [ -n "$MANIFEST" ]; then
+          RESULT=$(printf '%s' "$MANIFEST" | "${ZAD_CMD[@]}") && ZAD_EXIT=0 || ZAD_EXIT=$?
+        else
+          RESULT=$("${ZAD_CMD[@]}") && ZAD_EXIT=0 || ZAD_EXIT=$?
+        fi
 
         if [ "$ZAD_EXIT" -ne 0 ]; then
           report_zad_error "Deployment" "$RESULT" "$ZAD_PROJECT_ID"
@@ -297,13 +306,17 @@ runs:
 
         echo "Deployment successful"
 
-        # Extract URLs from CLI output
-        # CLI returns unwrapped task result: .urls.<deployment>.urls.<component>
+        # Ask the CLI where things are, rather than reading the shape of a task result.
+        # This used to dig into .urls.<deployment>.urls.<component> of the deploy's raw
+        # result: a nesting the CLI never promised, so nothing would fail here if it
+        # changed, and one that until 2026-08-13 could carry an address for a component
+        # with no ingress at all -- which this action would then publish as its output.
+        # `deployment url` reads the deployment itself, which is the honest source.
         if [ "$MULTI_COMPONENT" = "true" ]; then
-          ALL_URLS=$(echo "$RESULT" | jq -c ".urls.\"${DEPLOYMENT_NAME}\".urls // {}" 2>/dev/null)
+          ALL_URLS=$(zad --output json deployment url "$DEPLOYMENT_NAME" 2>/dev/null)
           if [ -z "$ALL_URLS" ] || [ "$ALL_URLS" = "{}" ] || [ "$ALL_URLS" = "null" ]; then
-            echo "::error::Could not extract URLs from result"
-            echo "$RESULT" | jq . 2>/dev/null || echo "$RESULT"
+            echo "::error::Deployment succeeded but no component has a public address."
+            echo "::error::A component gets one from the publish-on-web service."
             exit 1
           fi
           if [ -n "$PATH_SUFFIX" ]; then
@@ -317,10 +330,10 @@ runs:
           echo "Deployed components:"
           echo "$ALL_URLS" | jq -r 'to_entries[] | "  \(.key): \(.value)"'
         else
-          URL=$(echo "$RESULT" | jq -r ".urls.\"${DEPLOYMENT_NAME}\".urls.\"${COMPONENT}\"" 2>/dev/null)
-          if [ -z "$URL" ] || [ "$URL" = "null" ]; then
-            echo "::error::Could not extract URL from result"
-            echo "$RESULT" | jq . 2>/dev/null || echo "$RESULT"
+          # Errors name the components that do have an address, so the message is the
+          # answer rather than a dump of the result to read through.
+          if ! URL=$(zad deployment url "$DEPLOYMENT_NAME" --component "$COMPONENT" 2>&1); then
+            echo "::error::$URL"
             exit 1
           fi
           if [ -n "$PATH_SUFFIX" ]; then

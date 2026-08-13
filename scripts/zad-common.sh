@@ -13,7 +13,40 @@ install_zad_cli() {
     return 0
   fi
   echo "Installing zad-cli@${ZAD_CLI_VERSION}..."
-  if ! uv tool install "git+https://github.com/RijksICTGilde/zad-cli.git@${ZAD_CLI_VERSION}"; then
+
+  # The release carries a standalone binary per platform: one download, no Python, no
+  # build. Seconds instead of the minute or two `uv tool install` from a git URL takes,
+  # and it is the same artefact people install by hand, so a pipeline and a laptop run
+  # the same bytes. Falls back to the source install when there is no binary for this
+  # platform or the download fails, because a slower install beats a failed one.
+  mkdir -p "$HOME/.local/bin"
+  case "$(uname -s)/$(uname -m)" in
+    Linux/x86_64)  ZAD_ASSET="zadctl_linux_amd64.tar.gz" ;;
+    Darwin/arm64)  ZAD_ASSET="zadctl_darwin_arm64.tar.gz" ;;
+    Darwin/x86_64) ZAD_ASSET="zadctl_darwin_amd64.tar.gz" ;;
+    *)             ZAD_ASSET="" ;;
+  esac
+
+  ZAD_INSTALLED=0
+  if [ -n "$ZAD_ASSET" ]; then
+    ZAD_BASE="https://github.com/RijksICTGilde/zad-cli/releases/download/${ZAD_CLI_VERSION}"
+    ZAD_TMP=$(mktemp -d)
+    if curl -fsSL "${ZAD_BASE}/${ZAD_ASSET}" -o "${ZAD_TMP}/${ZAD_ASSET}" &&
+       curl -fsSL "${ZAD_BASE}/SHA256SUMS" -o "${ZAD_TMP}/SHA256SUMS"; then
+      # Verified, not just downloaded: this binary is about to hold a project API key.
+      if (cd "$ZAD_TMP" && sha256sum -c SHA256SUMS --ignore-missing >/dev/null 2>&1); then
+        tar -xzf "${ZAD_TMP}/${ZAD_ASSET}" -C "$HOME/.local/bin" zadctl &&
+          ln -sf "$HOME/.local/bin/zadctl" "$HOME/.local/bin/zad" &&
+          ZAD_INSTALLED=1
+      else
+        echo "::warning::Checksum mismatch for ${ZAD_ASSET}; falling back to a source install"
+      fi
+    fi
+    rm -rf "$ZAD_TMP"
+  fi
+
+  if [ "$ZAD_INSTALLED" = "0" ] &&
+     ! uv tool install "git+https://github.com/RijksICTGilde/zad-cli.git@${ZAD_CLI_VERSION}"; then
     echo "::error::Failed to install zad-cli@${ZAD_CLI_VERSION}"
     exit 1
   fi

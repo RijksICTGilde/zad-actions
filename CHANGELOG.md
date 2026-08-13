@@ -12,8 +12,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `cleanup`: a deployment that was already gone now logs a `::notice::` saying so, instead of a plain log line that scrolled past. The `zad-deleted` output is unchanged and still reports `false` for that case — it says what this run did, and a 404 has always reported `false` here
 - `cleanup`: `zad-deleted` now reports `false` for a deployment that was already gone. The API answers a delete for an absent deployment by completing the task with `deleted: false` rather than with a 404; v0.8.0 read that as a successful deletion and set `zad-deleted=true`. Workflows that branch on `zad-deleted == 'true'` will see the corrected value
 
+- `deploy`: the deployment URL comes from `zad deployment url` instead of from the raw task result of the deploy. The old path read `.urls.<deployment>.urls.<component>` with `jq`: a nesting zad-cli never promised, so nothing here would have failed if it changed, and one that until 2026-08-13 could carry an address for a component with no ingress at all — which this action published as its `url` output, sending the next step to a 404. A component without an address is now an error naming the components that have one
+- `deploy`: multi-component deploys pass their components as a manifest on stdin (`-f -`) instead of through the deprecated `--components` flag. The request that reaches the API is identical
+- `install_zad_cli` downloads the standalone binary for the platform and verifies it against the release's `SHA256SUMS`, falling back to the source install when there is no binary for the platform or the download fails. One download instead of a build: seconds rather than a minute or two, no Python needed, and the same artefact people install by hand — so a pipeline and a laptop run the same bytes
+
 ### Internal
-- zad-cli v0.10.0 deprecates `--components` in favour of `-f/--file` but keeps it working, with a regression test on our behalf. `deploy` keeps passing `--components`; the deprecation notice goes to stderr, so JSON parsing is unaffected. Migrating is a follow-up, not a requirement, but it has to happen before zad-cli removes the flag in a later major
+- zad-cli v0.10.0 deprecates `--components` in favour of `-f/--file` but keeps it working. `deploy` no longer uses it, so a later major removing it is no longer a break here
 
 ## [4.1.1] - 2026-09-09
 

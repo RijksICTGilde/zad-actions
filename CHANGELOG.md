@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Bump zad-cli from v0.8.0 to v0.10.0. Everything these actions call is unchanged: the `--output json` contract, every flag on `deployment create` and `deployment delete`, the diagnosis fields `report_zad_error` reads (`headline`, `summary`, `next_steps`, `status_code`), the exit codes, the `ZAD_*` env vars, and the stdout/stderr split that keeps stdout a single JSON document
+- `cleanup` and `scheduled-cleanup`: `zad-deleted` now reports `false` for a deployment that was already gone. The API answers a delete for an absent deployment by completing the task with `deleted: false` rather than with a 404; v0.8.0 read that as a successful deletion and set `zad-deleted=true`. Workflows that branch on `zad-deleted == 'true'` will see the corrected value
+
+### Internal
+- zad-cli v0.10.0 deprecates `--components` in favour of `-f/--file` but keeps it working, with a regression test on our behalf. `deploy` keeps passing `--components`; the deprecation notice goes to stderr, so JSON parsing is unaffected. Migrating is a follow-up, not a requirement, but it has to happen before zad-cli removes the flag in a later major
+
 ## [4.1.1] - 2026-09-09
 
 ### Fixed

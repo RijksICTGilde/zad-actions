@@ -352,7 +352,7 @@ runs:
 
           # 3. Delete GitHub environment (subshell to avoid leaking admin token on failure)
           if [ "$DELETE_GITHUB_ENV" = "true" ] && [ -n "$GH_ADMIN_TOKEN" ]; then
-            ENCODED_ENV=$(echo "$ENV_NAME" | jq -sRr @uri)
+            ENCODED_ENV=$(printf '%s' "$ENV_NAME" | jq -sRr @uri)
             if (export GH_TOKEN="$GH_ADMIN_TOKEN"; gh api "repos/$GITHUB_REPOSITORY/environments/$ENCODED_ENV" -X DELETE 2>/dev/null); then
               echo "GitHub environment '$ENV_NAME' deleted"
             else

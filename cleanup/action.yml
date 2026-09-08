@@ -242,7 +242,7 @@ runs:
         echo "Deleting GitHub environment: $DEPLOYMENT_NAME"
 
         # URL-encode the environment name
-        ENCODED_ENV=$(echo "$DEPLOYMENT_NAME" | jq -sRr @uri)
+        ENCODED_ENV=$(printf '%s' "$DEPLOYMENT_NAME" | jq -sRr @uri)
 
         # Try to delete and capture the response
         HTTP_RESPONSE=$(gh api "repos/$GITHUB_REPOSITORY/environments/$ENCODED_ENV" \

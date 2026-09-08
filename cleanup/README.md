@@ -33,6 +33,7 @@ Removes a ZAD deployment and optionally cleans up associated GitHub resources (e
 |------------------------------|----------------------------------------------------------|
 | `zad-deleted`                | Whether the ZAD deployment was deleted (`true`/`false`)  |
 | `github-env-deleted`         | Whether the GitHub environment was deleted               |
+| `github-env-delete-reason`   | Why it was not deleted (`not_found`, `permission_denied`, `zad_delete_failed`, `unknown`); empty on success |
 | `github-deployments-deleted` | Whether GitHub deployments were deleted                  |
 | `container-deleted`          | Whether the container image was deleted                  |
 | `pr-comment-deleted`         | Whether the PR comment was deleted                       |

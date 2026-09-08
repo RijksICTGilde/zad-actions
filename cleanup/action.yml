@@ -96,6 +96,9 @@ outputs:
   github-env-deleted:
     description: 'Whether the GitHub environment was deleted'
     value: ${{ steps.delete-github-env.outputs.deleted }}
+  github-env-delete-reason:
+    description: 'Why the GitHub environment was not deleted (not_found, permission_denied, zad_delete_failed, unknown); empty on success'
+    value: ${{ steps.delete-github-env.outputs.reason }}
   github-deployments-deleted:
     description: 'Whether GitHub deployments were deleted'
     value: ${{ steps.delete-github-deployments.outputs.deleted }}
@@ -183,6 +186,7 @@ runs:
           echo "ZAD deployment not found (already deleted?)"
         fi
         echo "deleted=$DELETE_RESULT" >> "$GITHUB_OUTPUT"
+        echo "reason=$DELETE_REASON" >> "$GITHUB_OUTPUT"
 
     - name: Delete GitHub Deployments
       id: delete-github-deployments
@@ -196,7 +200,8 @@ runs:
         echo "Deleting GitHub deployments for environment: $DEPLOYMENT_NAME"
 
         # Get all deployments for this environment
-        DEPLOYMENTS=$(gh api "repos/$GITHUB_REPOSITORY/deployments?environment=$DEPLOYMENT_NAME" --jq '.[].id' 2>/dev/null || echo "")
+        ENCODED_ENV=$(jq -rn --arg s "$DEPLOYMENT_NAME" '$s|@uri')
+        DEPLOYMENTS=$(gh api "repos/$GITHUB_REPOSITORY/deployments?environment=$ENCODED_ENV" --jq '.[].id' 2>/dev/null || echo "")
 
         if [ -z "$DEPLOYMENTS" ]; then
           echo "No GitHub deployments found for environment: $DEPLOYMENT_NAME"
@@ -236,9 +241,22 @@ runs:
       shell: bash
       env:
         GH_TOKEN: ${{ inputs.github-admin-token }}
+        GH_READ_TOKEN: ${{ inputs.github-token }}
         DEPLOYMENT_NAME: ${{ inputs.deployment-name }}
         GITHUB_REPOSITORY: ${{ github.repository }}
+        ZAD_DELETED: ${{ steps.delete-zad.outputs.deleted }}
+        ZAD_REASON: ${{ steps.delete-zad.outputs.reason }}
       run: |
+        # Keep the environment while the ZAD deployment still exists:
+        # scheduled-cleanup discovers leftovers via the environments listing,
+        # so deleting the environment first would orphan the deployment.
+        if [ "$ZAD_DELETED" = "false" ] && [ -n "$ZAD_REASON" ] && [ "$ZAD_REASON" != "not_found" ]; then
+          echo "::warning::Skipping delete of GitHub environment '$DEPLOYMENT_NAME': the ZAD deployment could not be deleted and the environment is the retry handle for it"
+          echo "deleted=false" >> "$GITHUB_OUTPUT"
+          echo "reason=zad_delete_failed" >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+
         echo "Deleting GitHub environment: $DEPLOYMENT_NAME"
 
         # URL-encode the environment name
@@ -250,25 +268,43 @@ runs:
           --include \
           2>&1) || true
 
-        # Check if it was successful (204 No Content) or environment didn't exist (404)
-        if echo "$HTTP_RESPONSE" | grep -qE "HTTP/[0-9.]+ 204"; then
-          echo "GitHub environment '$DEPLOYMENT_NAME' deleted successfully"
-          echo "deleted=true" >> "$GITHUB_OUTPUT"
-        elif echo "$HTTP_RESPONSE" | grep -qE "HTTP/[0-9.]+ 404"; then
-          echo "GitHub environment '$DEPLOYMENT_NAME' does not exist (already deleted?)"
-          echo "deleted=false" >> "$GITHUB_OUTPUT"
-          echo "reason=not_found" >> "$GITHUB_OUTPUT"
-        elif echo "$HTTP_RESPONSE" | grep -qE "HTTP/[0-9.]+ 403"; then
-          echo "::error::Permission denied: github-admin-token lacks permission to delete environments"
-          echo "::error::Ensure the token has 'repo' scope or is a GitHub App with 'administration:write' permission"
-          echo "deleted=false" >> "$GITHUB_OUTPUT"
-          echo "reason=permission_denied" >> "$GITHUB_OUTPUT"
-        else
-          echo "::warning::Failed to delete GitHub environment '$DEPLOYMENT_NAME'"
-          echo "Response: $HTTP_RESPONSE"
-          echo "deleted=false" >> "$GITHUB_OUTPUT"
-          echo "reason=unknown" >> "$GITHUB_OUTPUT"
-        fi
+        # gh api --include prints the status line first (e.g. "HTTP/2.0 204 No Content");
+        # take the first anchored status line so header/body/stderr content cannot match.
+        STATUS=$(printf '%s\n' "$HTTP_RESPONSE" | grep -oEm1 '^HTTP/[0-9.]+ [0-9]+' | grep -oE '[0-9]+$' || true)
+
+        case "$STATUS" in
+          204)
+            echo "GitHub environment '$DEPLOYMENT_NAME' deleted successfully"
+            echo "deleted=true" >> "$GITHUB_OUTPUT"
+            ;;
+          404)
+            # GitHub answers 404 instead of 403 when the token lacks access to the
+            # resource, so verify with the read token whether it is really gone.
+            if [ -n "$GH_READ_TOKEN" ] && GH_TOKEN="$GH_READ_TOKEN" gh api "repos/$GITHUB_REPOSITORY/environments/$ENCODED_ENV" >/dev/null 2>&1; then
+              echo "::error::GitHub environment '$DEPLOYMENT_NAME' still exists but the delete returned 404: github-admin-token cannot access it"
+              echo "::error::Ensure the token has 'repo' scope (classic), 'administration:write' (fine-grained/App), and access to this repository"
+              echo "deleted=false" >> "$GITHUB_OUTPUT"
+              echo "reason=permission_denied" >> "$GITHUB_OUTPUT"
+            else
+              echo "GitHub environment '$DEPLOYMENT_NAME' does not exist (already deleted?)"
+              echo "deleted=false" >> "$GITHUB_OUTPUT"
+              echo "reason=not_found" >> "$GITHUB_OUTPUT"
+            fi
+            ;;
+          403)
+            echo "::error::Permission denied: github-admin-token lacks permission to delete environments"
+            echo "::error::Ensure the token has 'repo' scope or is a GitHub App with 'administration:write' permission"
+            echo "Response: $HTTP_RESPONSE"
+            echo "deleted=false" >> "$GITHUB_OUTPUT"
+            echo "reason=permission_denied" >> "$GITHUB_OUTPUT"
+            ;;
+          *)
+            echo "::warning::Failed to delete GitHub environment '$DEPLOYMENT_NAME' (HTTP ${STATUS:-unknown})"
+            echo "Response: $HTTP_RESPONSE"
+            echo "deleted=false" >> "$GITHUB_OUTPUT"
+            echo "reason=unknown" >> "$GITHUB_OUTPUT"
+            ;;
+        esac
 
     - name: Delete Container Image
       id: delete-container

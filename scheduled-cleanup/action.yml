@@ -323,6 +323,7 @@ runs:
 
           echo "--- Cleaning up: $ENV_NAME ---"
           ENV_SUCCESS=true
+          ENCODED_ENV=$(jq -rn --arg s "$ENV_NAME" '$s|@uri')
 
           # 1. Delete ZAD deployment (shared helper handles retry, polling, 404, error reporting)
           zad_delete_deployment "$ENV_NAME"
@@ -337,7 +338,7 @@ runs:
 
           # 2. Delete GitHub deployments
           if [ "$DELETE_GITHUB_DEPLOYMENTS" = "true" ]; then
-            DEPLOYMENTS=$(gh api "repos/$GITHUB_REPOSITORY/deployments?environment=$ENV_NAME" \
+            DEPLOYMENTS=$(gh api "repos/$GITHUB_REPOSITORY/deployments?environment=$ENCODED_ENV" \
               --jq '.[].id' 2>/dev/null || echo "")
             for DEPLOYMENT_ID in $DEPLOYMENTS; do
               gh api "repos/$GITHUB_REPOSITORY/deployments/$DEPLOYMENT_ID/statuses" \
@@ -352,12 +353,27 @@ runs:
 
           # 3. Delete GitHub environment (subshell to avoid leaking admin token on failure)
           if [ "$DELETE_GITHUB_ENV" = "true" ] && [ -n "$GH_ADMIN_TOKEN" ]; then
-            ENCODED_ENV=$(jq -rn --arg s "$ENV_NAME" '$s|@uri')
-            if (export GH_TOKEN="$GH_ADMIN_TOKEN"; gh api "repos/$GITHUB_REPOSITORY/environments/$ENCODED_ENV" -X DELETE 2>/dev/null); then
-              echo "GitHub environment '$ENV_NAME' deleted"
-            else
-              echo "::warning::Failed to delete GitHub environment '$ENV_NAME'"
-            fi
+            HTTP_RESPONSE=$(export GH_TOKEN="$GH_ADMIN_TOKEN"; gh api "repos/$GITHUB_REPOSITORY/environments/$ENCODED_ENV" -X DELETE --include 2>&1) || true
+            STATUS=$(printf '%s\n' "$HTTP_RESPONSE" | grep -oEm1 '^HTTP/[0-9.]+ [0-9]+' | grep -oE '[0-9]+$' || true)
+            case "$STATUS" in
+              204)
+                echo "GitHub environment '$ENV_NAME' deleted"
+                ;;
+              404)
+                # GitHub answers 404 instead of 403 when the token lacks access;
+                # check with the regular token whether the environment is really gone.
+                if gh api "repos/$GITHUB_REPOSITORY/environments/$ENCODED_ENV" >/dev/null 2>&1; then
+                  echo "::warning::GitHub environment '$ENV_NAME' still exists but the delete returned 404: github-admin-token cannot access it"
+                  ENV_SUCCESS=false
+                else
+                  echo "GitHub environment '$ENV_NAME' not found (already clean)"
+                fi
+                ;;
+              *)
+                echo "::warning::Failed to delete GitHub environment '$ENV_NAME' (HTTP ${STATUS:-unknown})"
+                ENV_SUCCESS=false
+                ;;
+            esac
           fi
 
           # 4. Delete container image

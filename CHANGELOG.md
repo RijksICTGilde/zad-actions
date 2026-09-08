@@ -8,8 +8,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
-- `cleanup`, `scheduled-cleanup`: environment names were URL-encoded with a trailing newline (`pr123%0A`), so the GitHub-environment delete always returned 404 regardless of token permissions and every closed PR silently left its environment behind
-- `cleanup`: the delete-result check now recognizes the `HTTP/2.0` status lines that `gh api --include` actually emits; successful deletes were previously reported as failures with `deleted=false`
+- `cleanup`, `scheduled-cleanup`: environment names were URL-encoded with a trailing newline (`pr123%0A`), so the GitHub-environment delete always returned 404 regardless of token permissions; every closed PR left its environment behind (with only a per-run warning) while the job stayed green
+- `cleanup`: the delete-result check parses the status line `gh api --include` actually emits (`HTTP/2.0 204`); previously every outcome, including a successful delete, fell into the generic failure branch with `deleted=false`
+- `cleanup`: a 404 on delete is verified with the regular `github-token` before being treated as "already deleted" — GitHub answers 404 instead of 403 for an admin token that lacks access, which previously read as success
+- `cleanup`: the GitHub environment is kept when the ZAD deployment could not be deleted, so `scheduled-cleanup` can still discover and retry it; reported as new reason `zad_delete_failed`
+- `scheduled-cleanup`: a failed GitHub-environment delete now marks the environment as not cleaned, instead of still counting it in "Successfully cleaned N environment(s)" / `cleaned-count`
+- `scheduled-cleanup`: the environment delete distinguishes 204/404/other by status (with the same 404 access check as `cleanup`), so a benign already-gone environment no longer warns "Failed to delete"
+
+### Added
+- `cleanup`: new `github-env-delete-reason` output (`not_found`, `permission_denied`, `zad_delete_failed`, `unknown`; empty on success) so callers can tell "already gone" from "admin token broken"
 
 ## [4.1.0] - 2026-08-05
 

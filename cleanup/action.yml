@@ -97,7 +97,7 @@ outputs:
     description: 'Whether the GitHub environment was deleted'
     value: ${{ steps.delete-github-env.outputs.deleted }}
   github-env-delete-reason:
-    description: 'Why the GitHub environment was not deleted (not_found, permission_denied, zad_delete_failed, unknown); empty on success'
+    description: 'Why the GitHub environment was not deleted (not_found, permission_denied, zad_delete_failed, unknown); empty when it was deleted or when the delete step did not run'
     value: ${{ steps.delete-github-env.outputs.reason }}
   github-deployments-deleted:
     description: 'Whether GitHub deployments were deleted'
@@ -280,20 +280,34 @@ runs:
           404)
             # GitHub answers 404 instead of 403 when the token lacks access to the
             # resource, so verify with the read token whether it is really gone.
-            if [ -n "$GH_READ_TOKEN" ] && GH_TOKEN="$GH_READ_TOKEN" gh api "repos/$GITHUB_REPOSITORY/environments/$ENCODED_ENV" >/dev/null 2>&1; then
-              echo "::error::GitHub environment '$DEPLOYMENT_NAME' still exists but the delete returned 404: github-admin-token cannot access it"
-              echo "::error::Ensure the token has 'repo' scope (classic), 'administration:write' (fine-grained/App), and access to this repository"
-              echo "deleted=false" >> "$GITHUB_OUTPUT"
-              echo "reason=permission_denied" >> "$GITHUB_OUTPUT"
-            else
-              echo "GitHub environment '$DEPLOYMENT_NAME' does not exist (already deleted?)"
-              echo "deleted=false" >> "$GITHUB_OUTPUT"
-              echo "reason=not_found" >> "$GITHUB_OUTPUT"
+            # Only a verify 404 proves that; a failed verify proves nothing.
+            VERIFY_STATUS="skipped"
+            if [ -n "$GH_READ_TOKEN" ]; then
+              VERIFY_STATUS=$({ GH_TOKEN="$GH_READ_TOKEN" gh api "repos/$GITHUB_REPOSITORY/environments/$ENCODED_ENV" --include 2>&1 || true; } \
+                | grep -oEm1 '^HTTP/[0-9.]+ [0-9]+' | grep -oE '[0-9]+$' || true)
             fi
+            case "$VERIFY_STATUS" in
+              2*)
+                echo "::error::GitHub environment '$DEPLOYMENT_NAME' still exists but the delete returned 404: github-admin-token cannot access it"
+                echo "::error::Ensure the token has 'repo' scope (classic), 'administration:write' (fine-grained/App), and access to this repository"
+                echo "deleted=false" >> "$GITHUB_OUTPUT"
+                echo "reason=permission_denied" >> "$GITHUB_OUTPUT"
+                ;;
+              404|skipped)
+                echo "GitHub environment '$DEPLOYMENT_NAME' does not exist (already deleted?)"
+                echo "deleted=false" >> "$GITHUB_OUTPUT"
+                echo "reason=not_found" >> "$GITHUB_OUTPUT"
+                ;;
+              *)
+                echo "::warning::Delete of GitHub environment '$DEPLOYMENT_NAME' returned 404 and the verify read failed (HTTP ${VERIFY_STATUS:-unknown}): cannot tell 'already deleted' from a token without access"
+                echo "deleted=false" >> "$GITHUB_OUTPUT"
+                echo "reason=unknown" >> "$GITHUB_OUTPUT"
+                ;;
+            esac
             ;;
-          403)
-            echo "::error::Permission denied: github-admin-token lacks permission to delete environments"
-            echo "::error::Ensure the token has 'repo' scope or is a GitHub App with 'administration:write' permission"
+          401|403)
+            echo "::error::Permission denied (HTTP $STATUS): github-admin-token is expired, revoked, or lacks permission to delete environments"
+            echo "::error::Ensure the token is valid and has 'repo' scope (classic) or 'administration:write' (fine-grained/App)"
             echo "Response: $HTTP_RESPONSE"
             echo "deleted=false" >> "$GITHUB_OUTPUT"
             echo "reason=permission_denied" >> "$GITHUB_OUTPUT"
@@ -322,7 +336,17 @@ runs:
         CONTAINER_NAME: ${{ inputs.container-name }}
         CONTAINER_TAG: ${{ inputs.container-tag }}
         CONTAINERS: ${{ inputs.containers }}
+        ZAD_DELETED: ${{ steps.delete-zad.outputs.deleted }}
+        ZAD_REASON: ${{ steps.delete-zad.outputs.reason }}
       run: |
+        # Keep the image while the ZAD deployment still exists: deleting it under
+        # a live deployment causes ImagePullBackOff on the next pod restart.
+        if [ "$ZAD_DELETED" = "false" ] && [ -n "$ZAD_REASON" ] && [ "$ZAD_REASON" != "not_found" ]; then
+          echo "::warning::Skipping container image delete: the ZAD deployment could not be deleted and may still use the image"
+          echo "deleted=false" >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+
         # Build unified container list (JSON array)
         if [ -n "$CONTAINERS" ]; then
           # Multi-container mode: validate JSON

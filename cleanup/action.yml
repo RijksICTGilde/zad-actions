@@ -242,7 +242,7 @@ runs:
         echo "Deleting GitHub environment: $DEPLOYMENT_NAME"
 
         # URL-encode the environment name
-        ENCODED_ENV=$(printf '%s' "$DEPLOYMENT_NAME" | jq -sRr @uri)
+        ENCODED_ENV=$(jq -rn --arg s "$DEPLOYMENT_NAME" '$s|@uri')
 
         # Try to delete and capture the response
         HTTP_RESPONSE=$(gh api "repos/$GITHUB_REPOSITORY/environments/$ENCODED_ENV" \
@@ -251,14 +251,14 @@ runs:
           2>&1) || true
 
         # Check if it was successful (204 No Content) or environment didn't exist (404)
-        if echo "$HTTP_RESPONSE" | grep -q "HTTP/2 204\|HTTP/1.1 204"; then
+        if echo "$HTTP_RESPONSE" | grep -qE "HTTP/[0-9.]+ 204"; then
           echo "GitHub environment '$DEPLOYMENT_NAME' deleted successfully"
           echo "deleted=true" >> "$GITHUB_OUTPUT"
-        elif echo "$HTTP_RESPONSE" | grep -q "HTTP/2 404\|HTTP/1.1 404"; then
+        elif echo "$HTTP_RESPONSE" | grep -qE "HTTP/[0-9.]+ 404"; then
           echo "GitHub environment '$DEPLOYMENT_NAME' does not exist (already deleted?)"
           echo "deleted=false" >> "$GITHUB_OUTPUT"
           echo "reason=not_found" >> "$GITHUB_OUTPUT"
-        elif echo "$HTTP_RESPONSE" | grep -q "HTTP/2 403\|HTTP/1.1 403"; then
+        elif echo "$HTTP_RESPONSE" | grep -qE "HTTP/[0-9.]+ 403"; then
           echo "::error::Permission denied: github-admin-token lacks permission to delete environments"
           echo "::error::Ensure the token has 'repo' scope or is a GitHub App with 'administration:write' permission"
           echo "deleted=false" >> "$GITHUB_OUTPUT"

@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- `cleanup`, `scheduled-cleanup`: environment names were URL-encoded with a trailing newline (`pr123%0A`), so the GitHub-environment delete always returned 404 regardless of token permissions and every closed PR silently left its environment behind
+- `cleanup`: the delete-result check now recognizes the `HTTP/2.0` status lines that `gh api --include` actually emits; successful deletes were previously reported as failures with `deleted=false`
+
 ## [4.1.0] - 2026-08-05
 
 ### Added

@@ -5,7 +5,7 @@
 
 # Install zad-cli if not already available.
 # Pin to a specific version tag to prevent breaking changes.
-ZAD_CLI_VERSION="v0.10.0"
+ZAD_CLI_VERSION="v0.12.0"
 
 install_zad_cli() {
   if command -v zad >/dev/null 2>&1; then
@@ -22,6 +22,7 @@ install_zad_cli() {
   mkdir -p "$HOME/.local/bin"
   case "$(uname -s)/$(uname -m)" in
     Linux/x86_64)  ZAD_ASSET="zadctl_linux_amd64.tar.gz" ;;
+    Linux/aarch64) ZAD_ASSET="zadctl_linux_arm64.tar.gz" ;;
     Darwin/arm64)  ZAD_ASSET="zadctl_darwin_arm64.tar.gz" ;;
     Darwin/x86_64) ZAD_ASSET="zadctl_darwin_amd64.tar.gz" ;;
     *)             ZAD_ASSET="" ;;
@@ -34,7 +35,15 @@ install_zad_cli() {
     if curl -fsSL "${ZAD_BASE}/${ZAD_ASSET}" -o "${ZAD_TMP}/${ZAD_ASSET}" &&
        curl -fsSL "${ZAD_BASE}/SHA256SUMS" -o "${ZAD_TMP}/SHA256SUMS"; then
       # Verified, not just downloaded: this binary is about to hold a project API key.
-      if (cd "$ZAD_TMP" && sha256sum -c SHA256SUMS --ignore-missing >/dev/null 2>&1); then
+      if command -v sha256sum >/dev/null 2>&1; then
+        ZAD_SUMCHECK="sha256sum -c SHA256SUMS --ignore-missing"
+      else
+        # macOS ships shasum, not sha256sum. --ignore-missing is required either way:
+        # SHA256SUMS covers every platform's asset and we downloaded exactly one, so a
+        # plain -c reports the other five as failures and exits 1.
+        ZAD_SUMCHECK="shasum -a 256 --ignore-missing -c SHA256SUMS"
+      fi
+      if (cd "$ZAD_TMP" && $ZAD_SUMCHECK >/dev/null 2>&1); then
         tar -xzf "${ZAD_TMP}/${ZAD_ASSET}" -C "$HOME/.local/bin" zadctl &&
           ln -sf "$HOME/.local/bin/zadctl" "$HOME/.local/bin/zad" &&
           ZAD_INSTALLED=1

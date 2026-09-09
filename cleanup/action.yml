@@ -293,10 +293,15 @@ runs:
                 echo "deleted=false" >> "$GITHUB_OUTPUT"
                 echo "reason=permission_denied" >> "$GITHUB_OUTPUT"
                 ;;
-              404|skipped)
+              404)
                 echo "GitHub environment '$DEPLOYMENT_NAME' does not exist (already deleted?)"
                 echo "deleted=false" >> "$GITHUB_OUTPUT"
                 echo "reason=not_found" >> "$GITHUB_OUTPUT"
+                ;;
+              skipped)
+                echo "::warning::Delete of GitHub environment '$DEPLOYMENT_NAME' returned 404 and no github-token was available to verify it: cannot tell 'already deleted' from a token without access"
+                echo "deleted=false" >> "$GITHUB_OUTPUT"
+                echo "reason=unknown" >> "$GITHUB_OUTPUT"
                 ;;
               *)
                 echo "::warning::Delete of GitHub environment '$DEPLOYMENT_NAME' returned 404 and the verify read failed (HTTP ${VERIFY_STATUS:-unknown}): cannot tell 'already deleted' from a token without access"

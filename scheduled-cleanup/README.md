@@ -114,8 +114,19 @@ If your environments use a different naming convention (e.g., `preview-123`):
 5. **Cleanup**: For each stale environment (unless `dry-run`):
    - Submits a delete task to the ZAD V2 async API and polls until completion (with retry on transient errors)
    - Deletes GitHub deployments (marks inactive, then deletes)
-   - Deletes the GitHub environment (if `github-admin-token` provided)
-   - Deletes the container image (if `delete-container` enabled)
+   - Deletes the GitHub environment (if `github-admin-token` provided) — skipped when the ZAD delete failed
+   - Deletes the container image (if `delete-container` enabled) — skipped when the ZAD delete failed
+
+An environment counts toward `cleaned-count` only when every step for it succeeded. A ZAD deployment that was already gone (`not_found`) counts as clean.
+
+## Failed ZAD Deletes
+
+When the ZAD delete fails, the GitHub environment and container image are deliberately kept:
+
+- The environments listing is the **only** discovery mechanism this action has. Deleting the environment while its ZAD deployment still exists would orphan that deployment permanently — no later run could find it.
+- A live deployment may still pull the container image.
+
+Such environments are picked up again on the next scheduled run.
 
 ## Retry Behavior
 

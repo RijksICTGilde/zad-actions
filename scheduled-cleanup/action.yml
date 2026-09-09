@@ -360,46 +360,47 @@ runs:
             if [ "$DELETE_RESULT" != "true" ] && [ "$DELETE_REASON" != "not_found" ]; then
               echo "Keeping GitHub environment '$ENV_NAME': the ZAD deployment could not be deleted (retried next run)"
             else
-            HTTP_RESPONSE=$(export GH_TOKEN="$GH_ADMIN_TOKEN"; gh api "repos/$GITHUB_REPOSITORY/environments/$ENCODED_ENV" -X DELETE --include 2>&1) || true
-            STATUS=$(printf '%s\n' "$HTTP_RESPONSE" | grep -oEm1 '^HTTP/[0-9.]+ [0-9]+' | grep -oE '[0-9]+$' || true)
-            case "$STATUS" in
-              204)
-                echo "GitHub environment '$ENV_NAME' deleted"
-                ;;
-              404)
-                # GitHub answers 404 instead of 403 when the token lacks access;
-                # check with the regular token whether the environment is really gone.
-                # Only a verify 404 proves that; a failed verify proves nothing.
-                if [ "$ADMIN_ACCESS_BROKEN" = "true" ]; then
+              HTTP_RESPONSE=$(export GH_TOKEN="$GH_ADMIN_TOKEN"; gh api "repos/$GITHUB_REPOSITORY/environments/$ENCODED_ENV" -X DELETE --include 2>&1) || true
+              STATUS=$(printf '%s\n' "$HTTP_RESPONSE" | grep -oEm1 '^HTTP/[0-9.]+ [0-9]+' | grep -oE '[0-9]+$' || true)
+              case "$STATUS" in
+                204)
+                  echo "GitHub environment '$ENV_NAME' deleted"
+                  ;;
+                404)
+                  # GitHub answers 404 instead of 403 when the token lacks access;
+                  # check with the regular token whether the environment is really gone.
+                  # Only a verify 404 proves that; a failed verify proves nothing.
+                  if [ "$ADMIN_ACCESS_BROKEN" = "true" ]; then
+                    echo "::warning::Skipping GitHub environment '$ENV_NAME': github-admin-token access was already established as broken this run"
+                    ENV_SUCCESS=false
+                  else
+                    VERIFY_STATUS=$({ gh api "repos/$GITHUB_REPOSITORY/environments/$ENCODED_ENV" --include 2>&1 || true; } \
+                      | grep -oEm1 '^HTTP/[0-9.]+ [0-9]+' | grep -oE '[0-9]+$' || true)
+                    case "$VERIFY_STATUS" in
+                      2*)
+                        echo "::warning::GitHub environment '$ENV_NAME' still exists but the delete returned 404: github-admin-token cannot access it (skipping this check for the rest of the run)"
+                        ADMIN_ACCESS_BROKEN=true
+                        ENV_SUCCESS=false
+                        ;;
+                      404)
+                        echo "GitHub environment '$ENV_NAME' not found (already clean)"
+                        ;;
+                      *)
+                        echo "::warning::Delete of '$ENV_NAME' returned 404 and the verify read failed (HTTP ${VERIFY_STATUS:-unknown}); counting it as not cleaned"
+                        ENV_SUCCESS=false
+                        ;;
+                    esac
+                  fi
+                  ;;
+                401|403)
+                  echo "::warning::Permission denied deleting GitHub environment '$ENV_NAME' (HTTP $STATUS): github-admin-token is expired, revoked, or lacks 'administration:write'"
                   ENV_SUCCESS=false
-                else
-                  VERIFY_STATUS=$({ gh api "repos/$GITHUB_REPOSITORY/environments/$ENCODED_ENV" --include 2>&1 || true; } \
-                    | grep -oEm1 '^HTTP/[0-9.]+ [0-9]+' | grep -oE '[0-9]+$' || true)
-                  case "$VERIFY_STATUS" in
-                    2*)
-                      echo "::warning::GitHub environment '$ENV_NAME' still exists but the delete returned 404: github-admin-token cannot access it (skipping this check for the rest of the run)"
-                      ADMIN_ACCESS_BROKEN=true
-                      ENV_SUCCESS=false
-                      ;;
-                    404)
-                      echo "GitHub environment '$ENV_NAME' not found (already clean)"
-                      ;;
-                    *)
-                      echo "::warning::Delete of '$ENV_NAME' returned 404 and the verify read failed (HTTP ${VERIFY_STATUS:-unknown}); counting it as not cleaned"
-                      ENV_SUCCESS=false
-                      ;;
-                  esac
-                fi
-                ;;
-              401|403)
-                echo "::warning::Permission denied deleting GitHub environment '$ENV_NAME' (HTTP $STATUS): github-admin-token is expired, revoked, or lacks 'administration:write'"
-                ENV_SUCCESS=false
-                ;;
-              *)
-                echo "::warning::Failed to delete GitHub environment '$ENV_NAME' (HTTP ${STATUS:-unknown})"
-                ENV_SUCCESS=false
-                ;;
-            esac
+                  ;;
+                *)
+                  echo "::warning::Failed to delete GitHub environment '$ENV_NAME' (HTTP ${STATUS:-unknown})"
+                  ENV_SUCCESS=false
+                  ;;
+              esac
             fi
           fi
 

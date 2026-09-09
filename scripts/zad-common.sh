@@ -144,7 +144,7 @@ zad_delete_deployment() {
 
   if [ "$zad_exit" -eq 0 ]; then
     local reason
-    reason=$(echo "$result" | jq -r '.reason // empty' 2>/dev/null)
+    reason=$(echo "$result" | jq -r '.reason // empty' 2>/dev/null || echo "")
     if [ "$reason" = "not_found" ]; then
       DELETE_REASON="not_found"
     else

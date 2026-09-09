@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- `cleanup`, `scheduled-cleanup`: environment names were URL-encoded with a trailing newline (`pr123%0A`), so the GitHub-environment delete always returned 404 regardless of token permissions; every closed PR left its environment behind (with only a per-run warning) while the job stayed green
+- `cleanup`: the delete-result check parses the status line `gh api --include` actually emits (`HTTP/2.0 204`); previously every outcome, including a successful delete, fell into the generic failure branch with `deleted=false`
+- `cleanup`: a 404 on delete is verified with the regular `github-token` before being treated as "already deleted" — GitHub answers 404 instead of 403 for an admin token that lacks access, which previously read as success
+- `cleanup`: the GitHub environment is kept when the ZAD deployment could not be deleted, so `scheduled-cleanup` can still discover and retry it; reported as new reason `zad_delete_failed`
+- `scheduled-cleanup`: a failed GitHub-environment delete now marks the environment as not cleaned, instead of still counting it in "Successfully cleaned N environment(s)" / `cleaned-count`
+- `scheduled-cleanup`: the environment delete distinguishes 204/404/401/403/other by status (with the same 404 access check as `cleanup`), so a benign already-gone environment no longer warns "Failed to delete"
+- `scheduled-cleanup`: the environment and container image are kept when the ZAD delete failed in the same pass, mirroring the `cleanup` guard — the environments listing is the only discovery mechanism for retries
+- `cleanup`: the container image is also kept while the ZAD deployment still exists (a live deployment may still pull it)
+- `cleanup`, `scheduled-cleanup`: a 404 that cannot be verified — the read call failed, or no `github-token` was available to make it — is reported as `unknown` instead of being treated as "already deleted"; HTTP 401 now reports `permission_denied` instead of `unknown`
+- `scheduled-cleanup`: once the admin token is established as broken, the environments skipped for the rest of the run say so, instead of being silently counted as not cleaned
+- `scheduled-cleanup`: the container image being kept because the ZAD delete failed is now logged like the environment keep, instead of the step passing silently
+- `zad-common`: the delete-result `jq` parse gets the same non-JSON fallback as its siblings, so unexpected zad output no longer aborts the step before outputs are written
+
+### Added
+- `cleanup`: new `github-env-delete-reason` output (`not_found`, `permission_denied`, `zad_delete_failed`, `unknown`; empty on success) so callers can tell "already gone" from "admin token broken"
+
 ## [4.1.0] - 2026-08-05
 
 ### Added

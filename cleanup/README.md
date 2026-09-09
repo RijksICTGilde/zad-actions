@@ -33,6 +33,7 @@ Removes a ZAD deployment and optionally cleans up associated GitHub resources (e
 |------------------------------|----------------------------------------------------------|
 | `zad-deleted`                | Whether the ZAD deployment was deleted (`true`/`false`)  |
 | `github-env-deleted`         | Whether the GitHub environment was deleted               |
+| `github-env-delete-reason`   | Why it was not deleted (`not_found`, `permission_denied`, `zad_delete_failed`, `unknown`); empty when it was deleted or when the delete step did not run |
 | `github-deployments-deleted` | Whether GitHub deployments were deleted                  |
 | `container-deleted`          | Whether the container image was deleted                  |
 | `pr-comment-deleted`         | Whether the PR comment was deleted                       |
@@ -202,8 +203,8 @@ Check cleanup results and take action:
 
 1. **Delete ZAD Deployment**: Submits a delete task to the ZAD Operations Manager V2 async API and polls until completion
 2. **Delete GitHub Deployments** (optional): Marks all deployments for the environment as inactive, then deletes them
-3. **Delete GitHub Environment** (optional): Deletes the GitHub environment
-4. **Delete Container Image** (optional): Finds and deletes the container version with the specified tag
+3. **Delete GitHub Environment** (optional): Deletes the GitHub environment — skipped when step 1 failed, because the environment is the handle `scheduled-cleanup` uses to find and retry the leftover deployment
+4. **Delete Container Image** (optional): Finds and deletes the container version with the specified tag — skipped when step 1 failed, because a live deployment may still use the image
 5. **Delete PR Comment** (optional): Removes the deploy comment from the PR
 
 Each step runs independently and won't fail the action if it fails (cleanup is best-effort). Check the outputs to see what was actually deleted.
@@ -211,6 +212,8 @@ Each step runs independently and won't fail the action if it fails (cleanup is b
 ### Retry Behavior
 
 Only the ZAD API delete call is retried on transient errors. GitHub API calls (deployments, environments, containers) are not retried — they use best-effort error handling.
+
+When the ZAD delete fails, the GitHub environment and container image are deliberately kept so a later run can retry (`github-env-delete-reason` reports `zad_delete_failed`). The `scheduled-cleanup` action picks such environments up automatically; if you do not run it, re-run this cleanup (or clean up manually) after a failed ZAD delete.
 
 | HTTP Code | Retries? | Reason |
 |-----------|----------|--------|

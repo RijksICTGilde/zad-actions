@@ -18,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `cleanup`: the container image is also kept while the ZAD deployment still exists (a live deployment may still pull it)
 - `cleanup`, `scheduled-cleanup`: a 404 that cannot be verified — the read call failed, or no `github-token` was available to make it — is reported as `unknown` instead of being treated as "already deleted"; HTTP 401 now reports `permission_denied` instead of `unknown`
 - `scheduled-cleanup`: once the admin token is established as broken, the environments skipped for the rest of the run say so, instead of being silently counted as not cleaned
+- `scheduled-cleanup`: the container image being kept because the ZAD delete failed is now logged like the environment keep, instead of the step passing silently
 - `zad-common`: the delete-result `jq` parse gets the same non-JSON fallback as its siblings, so unexpected zad output no longer aborts the step before outputs are written
 
 ### Added

@@ -404,21 +404,25 @@ runs:
             fi
           fi
 
-          # 4. Delete container image (kept while the ZAD deployment still uses it)
-          if [ "$DELETE_CONTAINER" = "true" ] && [ -n "$CONTAINER_ORG" ] && [ -n "$CONTAINER_NAME" ] \
-            && { [ "$DELETE_RESULT" = "true" ] || [ "$DELETE_REASON" = "not_found" ]; }; then
-            # Use environment name as container tag (common pattern: pr-123)
-            PR_NUM=$(echo "$ENV_NAME" | sed "$PR_NUMBER_PATTERN")
-            CONTAINER_TAG="pr-$PR_NUM"
-            VERSIONS=$(gh api "orgs/$CONTAINER_ORG/packages/container/$CONTAINER_NAME/versions" 2>/dev/null | \
-              jq -r --arg tag "$CONTAINER_TAG" '.[] | select(.metadata.container.tags | index($tag)) | .id' 2>/dev/null || echo "")
-            for VERSION_ID in $VERSIONS; do
-              if gh api "orgs/$CONTAINER_ORG/packages/container/$CONTAINER_NAME/versions/$VERSION_ID" -X DELETE 2>/dev/null; then
-                echo "Container version $VERSION_ID deleted for tag '$CONTAINER_TAG'"
-              else
-                echo "::warning::Failed to delete container version $VERSION_ID"
-              fi
-            done
+          # 4. Delete container image (kept while the ZAD deployment still uses it:
+          # deleting it under a live deployment causes ImagePullBackOff on the next pod restart)
+          if [ "$DELETE_CONTAINER" = "true" ] && [ -n "$CONTAINER_ORG" ] && [ -n "$CONTAINER_NAME" ]; then
+            if [ "$DELETE_RESULT" != "true" ] && [ "$DELETE_REASON" != "not_found" ]; then
+              echo "Keeping container image for '$ENV_NAME': the ZAD deployment could not be deleted and may still use the image (retried next run)"
+            else
+              # Use environment name as container tag (common pattern: pr-123)
+              PR_NUM=$(echo "$ENV_NAME" | sed "$PR_NUMBER_PATTERN")
+              CONTAINER_TAG="pr-$PR_NUM"
+              VERSIONS=$(gh api "orgs/$CONTAINER_ORG/packages/container/$CONTAINER_NAME/versions" 2>/dev/null | \
+                jq -r --arg tag "$CONTAINER_TAG" '.[] | select(.metadata.container.tags | index($tag)) | .id' 2>/dev/null || echo "")
+              for VERSION_ID in $VERSIONS; do
+                if gh api "orgs/$CONTAINER_ORG/packages/container/$CONTAINER_NAME/versions/$VERSION_ID" -X DELETE 2>/dev/null; then
+                  echo "Container version $VERSION_ID deleted for tag '$CONTAINER_TAG'"
+                else
+                  echo "::warning::Failed to delete container version $VERSION_ID"
+                fi
+              done
+            fi
           fi
 
           if [ "$ENV_SUCCESS" = "true" ]; then

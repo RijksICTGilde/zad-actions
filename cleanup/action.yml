@@ -264,7 +264,7 @@ runs:
         echo "Deleting GitHub environment: $DEPLOYMENT_NAME"
 
         # URL-encode the environment name
-        ENCODED_ENV=$(jq -rn --arg s "$DEPLOYMENT_NAME" '$s|@uri')
+        ENCODED_ENV=$(echo "$DEPLOYMENT_NAME" | jq -sRr @uri)
 
         # Try to delete and capture the response
         HTTP_RESPONSE=$(gh api "repos/$GITHUB_REPOSITORY/environments/$ENCODED_ENV" \
@@ -274,7 +274,7 @@ runs:
 
         # gh api --include prints the status line first (e.g. "HTTP/2.0 204 No Content");
         # take the first anchored status line so header/body/stderr content cannot match.
-        STATUS=$(printf '%s\n' "$HTTP_RESPONSE" | grep -oEm1 '^HTTP/[0-9.]+ [0-9]+' | grep -oE '[0-9]+$' || true)
+        STATUS=$(printf '%s\n' "$HTTP_RESPONSE" | grep -oE 'HTTP/2 [0-9]+|HTTP/1.1 [0-9]+' | head -1 | grep -oE '[0-9]+$' || true)
 
         case "$STATUS" in
           204)

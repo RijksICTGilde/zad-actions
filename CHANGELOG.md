@@ -12,9 +12,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `cleanup` and `scheduled-cleanup`: `zad-deleted` now reports `false` for a deployment that was already gone. The API answers a delete for an absent deployment by completing the task with `deleted: false` rather than with a 404; v0.8.0 read that as a successful deletion and set `zad-deleted=true`. Workflows that branch on `zad-deleted == 'true'` will see the corrected value
 - `deploy`: multi-component deploys pass the component list as a manifest on stdin (`--file -`) instead of `--components`. This is required, not cosmetic — zad-cli removed `--components` in v0.10.0
 - `deploy`: component URLs come from `zad deployment url` instead of being dug out of `.urls.<deployment>.urls.<component>` in the deploy's raw task result, a nesting the CLI never promised
+- `deploy`: the `url` output is the first declared component that *has* a public address, rather than simply the first component. A component without an ingress has no address, and publishing `null` would send the next step to somewhere that never existed
 
 ### Internal
 - `install_zad_cli` prefers the release binary for the platform (one verified download) and falls back to the source install when there is no asset or the download fails. Linux arm64 is included, which zad-cli started publishing in v0.11.0
+- `install_zad_cli` exports `~/.local/bin` directly when the binary branch ran, instead of asking `uv tool bin`: on a self-hosted runner `UV_TOOL_BIN_DIR` or `XDG_BIN_HOME` can point that elsewhere, leaving the binary off PATH
 - Checksum verification works on macOS too: it uses `shasum -a 256` where `sha256sum` is absent, and passes `--ignore-missing` in both cases because `SHA256SUMS` covers every platform's asset while only one is downloaded
 
 ## [4.1.1] - 2026-09-09

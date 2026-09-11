@@ -118,7 +118,10 @@ inputs:
 
 outputs:
   url:
-    description: 'URL of the deployed application (first component when using components input)'
+    description: >-
+      URL of the deployed application. With the components input this is the first
+      declared component that has a public address, which need not be the first
+      component: one without an ingress has no address to publish.
     value: ${{ steps.deploy.outputs.url }}
   urls:
     description: 'JSON object mapping component names to URLs (only set when using components input)'
@@ -264,9 +267,9 @@ runs:
         # Build zad CLI command
         ZAD_CMD=(zad --output json deployment create "$DEPLOYMENT_NAME" --yes)
 
-        # --components is deprecated in the CLI ("use -f/--file instead") and will go in a
-        # later major. -f - takes the same list as a document on stdin and produces an
-        # identical request, so this stops depending on a flag that is on its way out.
+        # --components was removed in zad-cli v0.10.0, not deprecated: with the pin at
+        # v0.12.0 the old call fails outright rather than warning. -f - takes the same
+        # list as a document on stdin and produces an identical request.
         MANIFEST=""
         if [ "$MULTI_COMPONENT" = "true" ]; then
           MANIFEST=$(jq -nc --argjson c "$COMPONENTS" '{components: $c}')
@@ -321,6 +324,15 @@ runs:
             report_zad_error "Reading deployment URLs" "$ALL_URLS" "$ZAD_PROJECT_ID"
             exit 1
           fi
+          # Every json render in the CLI is json.dumps(indent=2), so this arrives
+          # multi-line. GITHUB_OUTPUT parses line by line: a bare multi-line value makes
+          # the runner reject the file with 'Invalid format' and fail the step after a
+          # deployment that actually succeeded. Compacting also rejects non-JSON here
+          # rather than downstream.
+          if ! ALL_URLS=$(echo "$ALL_URLS" | jq -c .); then
+            echo "::error::Deployment succeeded but the URL lookup returned no usable JSON"
+            exit 1
+          fi
           if [ -z "$ALL_URLS" ] || [ "$ALL_URLS" = "{}" ] || [ "$ALL_URLS" = "null" ]; then
             echo "::error::Deployment succeeded but no component has a public address."
             echo "::error::A component gets one from the publish-on-web service."
@@ -336,7 +348,7 @@ runs:
           # publishing null would send the next step to an address that never existed.
           FIRST_COMP=$(echo "$COMPONENTS" | jq -r '.[0].name')
           URL_COMP=$(echo "$COMPONENTS" | jq -r --argjson urls "$ALL_URLS" \
-            'map(.name) | map(select($urls[.])) | first // empty')
+            'map(.name) | map(select($urls[.] // "" | length > 0)) | first // empty')
           if [ -z "$URL_COMP" ]; then
             echo "::error::None of the deployed components has a public address."
             echo "::error::A component gets one from the publish-on-web service."

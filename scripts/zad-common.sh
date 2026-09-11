@@ -59,14 +59,22 @@ install_zad_cli() {
     echo "::error::Failed to install zad-cli@${ZAD_CLI_VERSION}"
     exit 1
   fi
-  # Ensure uv tool bin directory is on PATH for subsequent steps
-  UV_TOOL_BIN=$(uv tool bin 2>/dev/null || echo "")
-  if [ -n "$UV_TOOL_BIN" ] && [ -d "$UV_TOOL_BIN" ]; then
-    echo "$UV_TOOL_BIN" >> "$GITHUB_PATH"
-    export PATH="$UV_TOOL_BIN:$PATH"
-  elif [ -d "$HOME/.local/bin" ]; then
+  # Ensure the install location is on PATH for subsequent steps.
+  # The binary always lands in ~/.local/bin, so that path is exported whenever the binary
+  # branch ran -- `uv tool bin` answers for uv's directory, which UV_TOOL_BIN_DIR or
+  # XDG_BIN_HOME can point somewhere else entirely on a self-hosted runner.
+  if [ "$ZAD_INSTALLED" = "1" ]; then
     echo "$HOME/.local/bin" >> "$GITHUB_PATH"
     export PATH="$HOME/.local/bin:$PATH"
+  else
+    UV_TOOL_BIN=$(uv tool bin 2>/dev/null || echo "")
+    if [ -n "$UV_TOOL_BIN" ] && [ -d "$UV_TOOL_BIN" ]; then
+      echo "$UV_TOOL_BIN" >> "$GITHUB_PATH"
+      export PATH="$UV_TOOL_BIN:$PATH"
+    elif [ -d "$HOME/.local/bin" ]; then
+      echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      export PATH="$HOME/.local/bin:$PATH"
+    fi
   fi
   if ! command -v zad >/dev/null 2>&1; then
     echo "::error::zad-cli installed but 'zad' command not found in PATH"

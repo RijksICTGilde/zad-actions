@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.2.0] - 2026-09-11
+
+### Upgrading
+Two outputs change meaning in this release. Nothing is renamed or removed, so nothing fails to parse, but a workflow that branches on either one will take a different path than it did on 4.1.x — and because the `v4` tag moves to this release, that happens without any change on your side.
+
+- `zad-deleted` is `false` for a deployment that was already gone, where 4.1.x reported `true`. Earlier versions of this README suggested `if: steps.cleanup.outputs.zad-deleted != 'true'` to flag an incomplete cleanup; that condition now also fires for the already-gone case, where there is nothing to clean up by hand. Branch on `failure()` instead — the action already fails the step on a real delete error.
+- `deploy`'s `url` output is the first declared component that *has* a public address, rather than the first declared component. On 4.1.x a first component without an ingress produced the literal string `null`; the step now picks the next component that does have an address, and fails outright when no component has one. A deploy of components that are all ingress-less used to pass with `url=null` and now stops.
+
 ### Changed
 - Bump zad-cli from v0.8.0 to v0.12.0. Verified against the v0.12.0 binary itself: `deployment create` still takes `--component`, `--image`, `--file`, `--clone-from`, `--force-clone`, `--domain-format`, `--subdomain`, `--base-domain` and `--yes`; `deployment delete` still takes `--yes` and `--ignore-not-found` and still answers an absent deployment with `{"deleted": false, "reason": "not_found"}` as a single JSON document; and `Diagnosis` still carries the `fault`, `headline`, `summary`, `next_steps` and `status_code` fields `report_zad_error` reads
 - `cleanup` and `scheduled-cleanup`: `zad-deleted` now reports `false` for a deployment that was already gone. The API answers a delete for an absent deployment by completing the task with `deleted: false` rather than with a 404; v0.8.0 read that as a successful deletion and set `zad-deleted=true`. Workflows that branch on `zad-deleted == 'true'` will see the corrected value

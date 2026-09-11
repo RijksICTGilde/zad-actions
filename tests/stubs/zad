@@ -20,7 +20,20 @@ while [ $# -gt 0 ]; do
 done
 set -- "${ARGS[@]:-}"
 
-pretty() { printf '%s\n' "$1" | python3 -c 'import json,sys; print(json.dumps(json.load(sys.stdin), indent=2))'; }
+# Defaults are assigned here rather than inline: a ${VAR:-'{"a":"b"}'} default
+# inside double quotes loses its inner quoting and yields '{a:b}'.
+[ -n "${ZAD_STUB_CREATE:-}" ] || ZAD_STUB_CREATE='{"status":"ok"}'
+[ -n "${ZAD_STUB_URLS:-}" ]   || ZAD_STUB_URLS='{}'
+[ -n "${ZAD_STUB_DELETE:-}" ] || ZAD_STUB_DELETE='{"deleted":true}'
+
+# A stub that emits malformed json teaches the tests the wrong lesson, so it stops
+# instead of printing a traceback and carrying on.
+pretty() {
+  printf '%s\n' "$1" | python3 -c 'import json,sys; print(json.dumps(json.load(sys.stdin), indent=2))' 2>/dev/null || {
+    echo "stub: not valid json: $1" >&2
+    exit 70
+  }
+}
 
 case "${1:-}${2:+ $2}" in
   "version"|"--version")
@@ -28,11 +41,11 @@ case "${1:-}${2:+ $2}" in
   "deployment create")
     # The real CLI reads the manifest from stdin when given --file -.
     cat >/dev/null 2>&1 || true
-    pretty "${ZAD_STUB_CREATE:-'{"status":"ok"}'}" ;;
+    pretty "$ZAD_STUB_CREATE" ;;
   "deployment url")
-    pretty "${ZAD_STUB_URLS:-'{}'}" ;;
+    pretty "$ZAD_STUB_URLS" ;;
   "deployment delete")
-    pretty "${ZAD_STUB_DELETE:-'{"deleted":true}'}" ;;
+    pretty "$ZAD_STUB_DELETE" ;;
   *)
     echo "stub: unhandled command: $*" >&2; exit 64 ;;
 esac

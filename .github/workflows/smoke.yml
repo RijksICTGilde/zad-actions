@@ -44,8 +44,11 @@ jobs:
           URLS: ${{ steps.multi.outputs.urls }}
           URL: ${{ steps.multi.outputs.url }}
         run: |
-          # Reaching this step at all is half the assertion: a multi-line value
-          # makes the runner fail the step that wrote it.
+          # Reaching this step at all is the load-bearing assertion. A multi-line
+          # value never gets here: the runner rejects the whole file with
+          # "Invalid format '  \"web\": ...'" and fails the step that wrote it, so
+          # the deploy action goes red before this one is reached. Verified by
+          # reverting the jq -c and watching exactly that happen.
           echo "urls=$URLS"
           echo "url=$URL"
           [ "$(printf '%s' "$URLS" | wc -l)" -eq 0 ] || { echo "::error::urls spans multiple lines"; exit 1; }

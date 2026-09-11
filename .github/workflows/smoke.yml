@@ -1,0 +1,120 @@
+name: Smoke Tests
+
+# Runs the composite actions end to end against stubbed zad-cli and gh, on a real
+# runner. That last part is the point: the bugs these tests cover were not in the
+# shell logic but in what the runner did with it -- an output value spanning
+# multiple lines makes the runner reject GITHUB_OUTPUT entirely. A harness that
+# executed the same bash in a subshell would call that a pass.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: deploy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Put the stubs on PATH
+        run: |
+          chmod +x tests/stubs/*
+          echo "$PWD/tests/stubs" >> "$GITHUB_PATH"
+
+      - name: Both components have an address
+        run: echo 'ZAD_STUB_URLS={"web":"https://web.example","api":"https://api.example"}' >> "$GITHUB_ENV"
+
+      - name: Multi-component deploy
+        id: multi
+        uses: ./deploy
+        with:
+          api-key: stub
+          project-id: testproject
+          deployment-name: pr123
+          components: '[{"name":"web","image":"ghcr.io/o/web:pr-123"},{"name":"api","image":"ghcr.io/o/api:pr-123"}]'
+
+      - name: The urls output must be one line of valid JSON
+        env:
+          URLS: ${{ steps.multi.outputs.urls }}
+          URL: ${{ steps.multi.outputs.url }}
+        run: |
+          # Reaching this step at all is half the assertion: a multi-line value
+          # makes the runner fail the step that wrote it.
+          echo "urls=$URLS"
+          echo "url=$URL"
+          [ "$(printf '%s' "$URLS" | wc -l)" -eq 0 ] || { echo "::error::urls spans multiple lines"; exit 1; }
+          echo "$URLS" | jq -e . >/dev/null || { echo "::error::urls is not valid JSON"; exit 1; }
+          [ "$(echo "$URLS" | jq -r '.web')" = "https://web.example" ] || { echo "::error::wrong web url"; exit 1; }
+          [ "$URL" = "https://web.example" ] || { echo "::error::url should be the first component's address, got '$URL'"; exit 1; }
+
+      - name: Only the second component has an address
+        # 'web' is declared first but has no ingress, so 'api' is the honest answer.
+        run: echo 'ZAD_STUB_URLS={"api":"https://api.example"}' >> "$GITHUB_ENV"
+
+      - name: A first component without an address must not win
+        id: noaddr
+        uses: ./deploy
+        with:
+          api-key: stub
+          project-id: testproject
+          deployment-name: pr123
+          components: '[{"name":"web","image":"ghcr.io/o/web:pr-123"},{"name":"api","image":"ghcr.io/o/api:pr-123"}]'
+
+      - name: url must fall through to the component that has one
+        env:
+          URL: ${{ steps.noaddr.outputs.url }}
+        run: |
+          [ "$URL" = "https://api.example" ] || { echo "::error::expected the api url, got '$URL'"; exit 1; }
+
+  cleanup:
+    name: cleanup
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Put the stubs on PATH
+        run: |
+          chmod +x tests/stubs/*
+          echo "$PWD/tests/stubs" >> "$GITHUB_PATH"
+          echo "GH_STUB_LOG=$RUNNER_TEMP/gh-calls.log" >> "$GITHUB_ENV"
+
+      - name: Cleanup with a successful environment delete
+        id: clean
+        uses: ./cleanup
+        with:
+          api-key: stub
+          project-id: testproject
+          deployment-name: pr123
+          github-admin-token: stub-admin
+          delete-github-env: 'true'
+          delete-github-deployments: 'false'
+          delete-container: 'false'
+          delete-pr-comment: 'false'
+
+      - name: A 204 must read as deleted, and the name must not be encoded
+        env:
+          ENV_DELETED: ${{ steps.clean.outputs.github-env-deleted }}
+          REASON: ${{ steps.clean.outputs.github-env-delete-reason }}
+        run: |
+          echo "--- gh calls ---"; cat "$GH_STUB_LOG"
+
+          # The stub answers 'HTTP/2.0 204'. Parsing that only matched 'HTTP/2 204'
+          # for a long time, so every delete -- including a successful one -- read
+          # as a failure.
+          [ "$ENV_DELETED" = "true" ] || { echo "::error::expected github-env-deleted=true, got '$ENV_DELETED'"; exit 1; }
+          [ -z "$REASON" ] || { echo "::error::expected an empty reason on success, got '$REASON'"; exit 1; }
+
+          # jq -sRr @uri over `echo` once encoded the trailing newline into the URL,
+          # so every delete hit /environments/pr123%0A and answered 404.
+          if grep -q '%0A' "$GH_STUB_LOG"; then
+            echo "::error::an environment name was URL-encoded with its trailing newline"
+            grep '%0A' "$GH_STUB_LOG"
+            exit 1
+          fi
+          grep -q 'environments/pr123 ' "$GH_STUB_LOG" || { echo "::error::no delete for the plain environment name"; exit 1; }

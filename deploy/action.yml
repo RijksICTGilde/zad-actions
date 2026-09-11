@@ -118,7 +118,10 @@ inputs:
 
 outputs:
   url:
-    description: 'URL of the deployed application (first component when using components input)'
+    description: >-
+      URL of the deployed application. With the components input this is the first
+      declared component that has a public address, which need not be the first
+      component: one without an ingress has no address to publish.
     value: ${{ steps.deploy.outputs.url }}
   urls:
     description: 'JSON object mapping component names to URLs (only set when using components input)'
@@ -264,8 +267,13 @@ runs:
         # Build zad CLI command
         ZAD_CMD=(zad --output json deployment create "$DEPLOYMENT_NAME" --yes)
 
+        # --components was removed in zad-cli v0.10.0, not deprecated: with the pin at
+        # v0.12.0 the old call fails outright rather than warning. -f - takes the same
+        # list as a document on stdin and produces an identical request.
+        MANIFEST=""
         if [ "$MULTI_COMPONENT" = "true" ]; then
-          ZAD_CMD+=(--components "$COMPONENTS")
+          MANIFEST=$(jq -nc --argjson c "$COMPONENTS" '{components: $c}')
+          ZAD_CMD+=(--file -)
         else
           ZAD_CMD+=(--component "$COMPONENT" --image "$IMAGE")
         fi
@@ -288,7 +296,11 @@ runs:
 
         # Execute CLI (retry, polling, error handling all built in)
         # In --output json mode, errors go to stdout as JSON with status_code
-        RESULT=$("${ZAD_CMD[@]}") && ZAD_EXIT=0 || ZAD_EXIT=$?
+        if [ -n "$MANIFEST" ]; then
+          RESULT=$(printf '%s' "$MANIFEST" | "${ZAD_CMD[@]}") && ZAD_EXIT=0 || ZAD_EXIT=$?
+        else
+          RESULT=$("${ZAD_CMD[@]}") && ZAD_EXIT=0 || ZAD_EXIT=$?
+        fi
 
         if [ "$ZAD_EXIT" -ne 0 ]; then
           report_zad_error "Deployment" "$RESULT" "$ZAD_PROJECT_ID"
@@ -297,13 +309,33 @@ runs:
 
         echo "Deployment successful"
 
-        # Extract URLs from CLI output
-        # CLI returns unwrapped task result: .urls.<deployment>.urls.<component>
+        # Ask the CLI where things are, rather than reading the shape of a task result.
+        # This used to dig into .urls.<deployment>.urls.<component> of the deploy's raw
+        # result: a nesting the CLI never promised, so nothing would fail here if it
+        # changed, and one that until 2026-08-13 could carry an address for a component
+        # with no ingress at all -- which this action would then publish as its output.
+        # `deployment url` reads the deployment itself, which is the honest source.
         if [ "$MULTI_COMPONENT" = "true" ]; then
-          ALL_URLS=$(echo "$RESULT" | jq -c ".urls.\"${DEPLOYMENT_NAME}\".urls // {}" 2>/dev/null)
+          # Check the exit status, not just the output. In json mode a failed command puts
+          # its diagnosis on stdout, and that is a non-empty JSON document: it sails past
+          # an emptiness check, gets published as 'urls', and leaves 'url' as null while
+          # the step reports success.
+          if ! ALL_URLS=$(zad --output json deployment url "$DEPLOYMENT_NAME" 2>/dev/null); then
+            report_zad_error "Reading deployment URLs" "$ALL_URLS" "$ZAD_PROJECT_ID"
+            exit 1
+          fi
+          # Every json render in the CLI is json.dumps(indent=2), so this arrives
+          # multi-line. GITHUB_OUTPUT parses line by line: a bare multi-line value makes
+          # the runner reject the file with 'Invalid format' and fail the step after a
+          # deployment that actually succeeded. Compacting also rejects non-JSON here
+          # rather than downstream.
+          if ! ALL_URLS=$(echo "$ALL_URLS" | jq -c .); then
+            echo "::error::Deployment succeeded but the URL lookup returned no usable JSON"
+            exit 1
+          fi
           if [ -z "$ALL_URLS" ] || [ "$ALL_URLS" = "{}" ] || [ "$ALL_URLS" = "null" ]; then
-            echo "::error::Could not extract URLs from result"
-            echo "$RESULT" | jq . 2>/dev/null || echo "$RESULT"
+            echo "::error::Deployment succeeded but no component has a public address."
+            echo "::error::A component gets one from the publish-on-web service."
             exit 1
           fi
           if [ -n "$PATH_SUFFIX" ]; then
@@ -311,16 +343,29 @@ runs:
               'to_entries | map(.value = (.value | rtrimstr("/")) + $suffix) | from_entries')
           fi
           echo "urls=$ALL_URLS" >> "$GITHUB_OUTPUT"
+          # 'url' is documented as the first component's address, but a component without
+          # an ingress has none. Take the first declared component that does have one:
+          # publishing null would send the next step to an address that never existed.
           FIRST_COMP=$(echo "$COMPONENTS" | jq -r '.[0].name')
-          URL=$(echo "$ALL_URLS" | jq -r ".\"${FIRST_COMP}\"" 2>/dev/null)
+          URL_COMP=$(echo "$COMPONENTS" | jq -r --argjson urls "$ALL_URLS" \
+            'map(.name) | map(select($urls[.] // "" | length > 0)) | first // empty')
+          if [ -z "$URL_COMP" ]; then
+            echo "::error::None of the deployed components has a public address."
+            echo "::error::A component gets one from the publish-on-web service."
+            exit 1
+          fi
+          if [ "$URL_COMP" != "$FIRST_COMP" ]; then
+            echo "::notice::Component '$FIRST_COMP' has no public address; the 'url' output reports '$URL_COMP'"
+          fi
+          URL=$(echo "$ALL_URLS" | jq -r --arg c "$URL_COMP" '.[$c]')
           echo "url=$URL" >> "$GITHUB_OUTPUT"
           echo "Deployed components:"
           echo "$ALL_URLS" | jq -r 'to_entries[] | "  \(.key): \(.value)"'
         else
-          URL=$(echo "$RESULT" | jq -r ".urls.\"${DEPLOYMENT_NAME}\".urls.\"${COMPONENT}\"" 2>/dev/null)
-          if [ -z "$URL" ] || [ "$URL" = "null" ]; then
-            echo "::error::Could not extract URL from result"
-            echo "$RESULT" | jq . 2>/dev/null || echo "$RESULT"
+          # Errors name the components that do have an address, so the message is the
+          # answer rather than a dump of the result to read through.
+          if ! URL=$(zad deployment url "$DEPLOYMENT_NAME" --component "$COMPONENT" 2>&1); then
+            echo "::error::$URL"
             exit 1
           fi
           if [ -n "$PATH_SUFFIX" ]; then

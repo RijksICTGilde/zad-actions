@@ -31,7 +31,7 @@ Removes a ZAD deployment and optionally cleans up associated GitHub resources (e
 
 | Name                         | Description                                              |
 |------------------------------|----------------------------------------------------------|
-| `zad-deleted`                | Whether the ZAD deployment was deleted (`true`/`false`)  |
+| `zad-deleted`                | Whether this run deleted the ZAD deployment (`true`/`false`). `false` when the deployment was already gone — a clean end state, not a failure |
 | `github-env-deleted`         | Whether the GitHub environment was deleted               |
 | `github-env-delete-reason`   | Why it was not deleted (`not_found`, `permission_denied`, `zad_delete_failed`, `unknown`); empty when it was deleted or when the delete step did not run |
 | `github-deployments-deleted` | Whether GitHub deployments were deleted                  |
@@ -195,8 +195,12 @@ Check cleanup results and take action:
     echo "Container deleted: ${{ steps.cleanup.outputs.container-deleted }}"
 
 - name: Notify on incomplete cleanup
-  if: steps.cleanup.outputs.zad-deleted != 'true'
-  run: echo "::warning::ZAD deployment was not deleted - may need manual cleanup"
+  # The action already fails the step on a real delete error, and logs a notice when the
+  # deployment was simply already gone. Branch on the job status, not on zad-deleted:
+  # `zad-deleted != 'true'` also covers the already-gone case, where there is nothing to
+  # clean up by hand.
+  if: failure()
+  run: echo "::warning::ZAD cleanup did not complete - may need manual cleanup"
 ```
 
 ## How It Works

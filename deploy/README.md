@@ -38,7 +38,7 @@ Deploys a container image to ZAD Operations Manager.
 
 | Name      | Description                                           |
 |-----------|-------------------------------------------------------|
-| `url`     | URL of the deployed application (first component when using `components` input) |
+| `url`     | URL of the deployed application. With the `components` input this is the first declared component that *has* a public address — a component without an ingress has none |
 | `urls`    | JSON object mapping component names to URLs (only set when using `components` input) |
 | `skipped` | Whether deployment was skipped due to bot PR detection |
 

@@ -91,7 +91,9 @@ inputs:
 
 outputs:
   zad-deleted:
-    description: 'Whether the ZAD deployment was deleted'
+    description: >-
+      Whether this run deleted the ZAD deployment. False when the deployment was
+      already gone, which is a clean end state rather than a failure.
     value: ${{ steps.delete-zad.outputs.deleted }}
   github-env-deleted:
     description: 'Whether the GitHub environment was deleted'
@@ -183,7 +185,9 @@ runs:
         if [ "$DELETE_RESULT" = "true" ]; then
           echo "ZAD deployment deleted successfully"
         elif [ "$DELETE_REASON" = "not_found" ]; then
-          echo "ZAD deployment not found (already deleted?)"
+          # Nothing was deleted because nothing was there. That is a clean end state,
+          # not a failure, but 'deleted' says what this run did — so it stays false.
+          echo "::notice::ZAD deployment '$DEPLOYMENT_NAME' was already gone; nothing to delete (zad-deleted=false)"
         fi
         echo "deleted=$DELETE_RESULT" >> "$GITHUB_OUTPUT"
         echo "reason=$DELETE_REASON" >> "$GITHUB_OUTPUT"

@@ -1,0 +1,52 @@
+#!/usr/bin/env bash
+# Stub zad-cli for the smoke tests. Mimics the real CLI where it matters:
+# every --output json render is json.dumps(indent=2), so responses are
+# PRETTY-PRINTED ON PURPOSE. A stub that answered on one line would hide the
+# class of bug these tests exist to catch.
+set -u
+
+# Record the argv so a test can assert on what the action actually passed.
+if [ -n "${ZAD_STUB_LOG:-}" ]; then
+  printf '%s\n' "$*" >> "$ZAD_STUB_LOG"
+fi
+
+# Strip global flags to find the subcommand.
+ARGS=()
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --output) shift 2 ;;
+    *) ARGS+=("$1"); shift ;;
+  esac
+done
+set -- "${ARGS[@]:-}"
+
+# Defaults are assigned here rather than inline: a ${VAR:-'{"a":"b"}'} default
+# inside double quotes loses its inner quoting and yields '{a:b}'.
+[ -n "${ZAD_STUB_CREATE:-}" ] || ZAD_STUB_CREATE='{"status":"ok"}'
+[ -n "${ZAD_STUB_URLS:-}" ]   || ZAD_STUB_URLS='{}'
+[ -n "${ZAD_STUB_DELETE:-}" ] || ZAD_STUB_DELETE='{"deleted":true}'
+
+# A stub that emits malformed json teaches the tests the wrong lesson, so it stops
+# instead of printing a traceback and carrying on.
+pretty() {
+  printf '%s\n' "$1" | python3 -c 'import json,sys; print(json.dumps(json.load(sys.stdin), indent=2))' 2>/dev/null || {
+    echo "stub: not valid json: $1" >&2
+    exit 70
+  }
+}
+
+case "${1:-}${2:+ $2}" in
+  "version"|"--version")
+    echo "zadctl 0.12.0-stub" ;;
+  "deployment create")
+    # The real CLI reads the manifest from stdin when given --file -.
+    cat >/dev/null 2>&1 || true
+    pretty "$ZAD_STUB_CREATE" ;;
+  "deployment url")
+    pretty "$ZAD_STUB_URLS" ;;
+  "deployment delete")
+    pretty "$ZAD_STUB_DELETE" ;;
+  *)
+    echo "stub: unhandled command: $*" >&2; exit 64 ;;
+esac
+exit "${ZAD_STUB_EXIT:-0}"

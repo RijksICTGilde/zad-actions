@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+# Stub gh for the smoke tests. Only `gh api` is implemented, and only the calls
+# the cleanup action makes. Status lines are emitted as HTTP/2.0, which is what
+# the real gh prints (Go's resp.Proto) -- an HTTP/1.1 stub would pass against
+# parsing that cannot handle real traffic.
+set -u
+
+[ "${1:-}" = "api" ] || { echo "stub: only 'gh api' is supported, got: $*" >&2; exit 64; }
+shift
+
+# Record every call so a test can assert on the URL that was actually built --
+# this is what catches an environment name encoded as 'pr123%0A'.
+if [ -n "${GH_STUB_LOG:-}" ]; then
+  printf '%s\n' "$*" >> "$GH_STUB_LOG"
+fi
+
+ENDPOINT="$1"; shift
+METHOD="GET"; INCLUDE=0
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -X) METHOD="$2"; shift 2 ;;
+    --include) INCLUDE=1; shift ;;
+    --jq|-f|-F) shift 2 ;;
+    *) shift ;;
+  esac
+done
+
+emit() {  # emit <status> [body]
+  if [ "$INCLUDE" = "1" ]; then
+    printf 'HTTP/2.0 %s\r\nContent-Type: application/json\r\n\r\n' "$1"
+  fi
+  [ -n "${2:-}" ] && printf '%s\n' "$2"
+  case "$1" in 2*) return 0 ;; *) return 1 ;; esac
+}
+
+case "$ENDPOINT:$METHOD" in
+  */environments/*:DELETE) emit "${GH_STUB_ENV_DELETE:-204 No Content}" ;;
+  */environments/*:GET)    emit "${GH_STUB_ENV_GET:-404 Not Found}" ;;
+  */deployments*:GET)      emit "200 OK" "${GH_STUB_DEPLOYMENTS:-}" ;;
+  */deployments/*:*)       emit "204 No Content" ;;
+  *)                       emit "200 OK" "[]" ;;
+esac

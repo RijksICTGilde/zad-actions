@@ -37,11 +37,32 @@ jobs:
           fi
           echo "Found CHANGELOG entry for version $VERSION"
 
+      - name: Extract release notes from CHANGELOG
+        id: notes
+        run: |
+          VERSION=${{ steps.version.outputs.version }}
+          # Everything between this version's heading and the next one. The CHANGELOG is
+          # where the upgrade guidance is written; without this the release page shows
+          # only auto-generated PR titles, and a behaviour change reaches consumers with
+          # nothing on the release itself to warn them.
+          awk -v ver="$VERSION" '
+            $0 ~ "^## \\[" ver "\\]" { found = 1; next }
+            found && /^## \[/ { exit }
+            found { print }
+          ' CHANGELOG.md > "$RUNNER_TEMP/release-notes.md"
+          if [ ! -s "$RUNNER_TEMP/release-notes.md" ]; then
+            echo "::error::CHANGELOG section for $VERSION is empty"
+            exit 1
+          fi
+          echo "Release notes for $VERSION:"
+          cat "$RUNNER_TEMP/release-notes.md"
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ steps.version.outputs.tag }}
           name: ${{ steps.version.outputs.tag }}
+          body_path: ${{ runner.temp }}/release-notes.md
           generate_release_notes: true
           draft: false
           prerelease: false

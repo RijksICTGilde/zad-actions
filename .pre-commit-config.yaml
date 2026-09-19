@@ -1,5 +1,10 @@
 minimum_pre_commit_version: 4.5.0
 
+ci:
+  autoupdate_schedule: weekly
+  # Skip hooks that are already run by CI workflow (avoid duplicates)
+  skip: [shellcheck, actionlint, yamllint]
+
 repos:
   - repo: https://github.com/shellcheck-py/shellcheck-py
     rev: v0.11.0.1-1
@@ -24,4 +29,4 @@ repos:
     rev: v1.38.0
     hooks:
       - id: yamllint
-        args: [-d, "{extends: relaxed, rules: {line-length: {max: 150}}}"]
+        args: [--strict]

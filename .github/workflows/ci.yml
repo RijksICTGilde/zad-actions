@@ -95,7 +95,4 @@ jobs:
 
       - name: Lint YAML files
         run: |
-          yamllint -d "{extends: relaxed, rules: {line-length: {max: 150}}}" \
-            deploy/action.yml \
-            cleanup/action.yml \
-            .github/workflows/*.yml
+          yamllint --strict .

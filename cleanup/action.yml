@@ -99,7 +99,9 @@ outputs:
     description: 'Whether the GitHub environment was deleted'
     value: ${{ steps.delete-github-env.outputs.deleted }}
   github-env-delete-reason:
-    description: 'Why the GitHub environment was not deleted (not_found, permission_denied, zad_delete_failed, unknown); empty when it was deleted or when the delete step did not run'
+    description: >-
+      Why the GitHub environment was not deleted (not_found, permission_denied, zad_delete_failed, unknown);
+      empty when it was deleted or when the delete step did not run
     value: ${{ steps.delete-github-env.outputs.reason }}
   github-deployments-deleted:
     description: 'Whether GitHub deployments were deleted'
@@ -255,7 +257,8 @@ runs:
         # scheduled-cleanup discovers leftovers via the environments listing,
         # so deleting the environment first would orphan the deployment.
         if [ "$ZAD_DELETED" = "false" ] && [ -n "$ZAD_REASON" ] && [ "$ZAD_REASON" != "not_found" ]; then
-          echo "::warning::Skipping delete of GitHub environment '$DEPLOYMENT_NAME': the ZAD deployment could not be deleted and the environment is the retry handle for it"
+          echo "::warning::Skipping delete of GitHub environment '$DEPLOYMENT_NAME':" \
+            "the ZAD deployment could not be deleted and the environment is the retry handle for it"
           echo "deleted=false" >> "$GITHUB_OUTPUT"
           echo "reason=zad_delete_failed" >> "$GITHUB_OUTPUT"
           exit 0
@@ -303,12 +306,15 @@ runs:
                 echo "reason=not_found" >> "$GITHUB_OUTPUT"
                 ;;
               skipped)
-                echo "::warning::Delete of GitHub environment '$DEPLOYMENT_NAME' returned 404 and no github-token was available to verify it: cannot tell 'already deleted' from a token without access"
+                echo "::warning::Delete of GitHub environment '$DEPLOYMENT_NAME' returned 404 and no github-token was available to verify it:" \
+                  "cannot tell 'already deleted' from a token without access"
                 echo "deleted=false" >> "$GITHUB_OUTPUT"
                 echo "reason=unknown" >> "$GITHUB_OUTPUT"
                 ;;
               *)
-                echo "::warning::Delete of GitHub environment '$DEPLOYMENT_NAME' returned 404 and the verify read failed (HTTP ${VERIFY_STATUS:-unknown}): cannot tell 'already deleted' from a token without access"
+                echo "::warning::Delete of GitHub environment '$DEPLOYMENT_NAME' returned 404" \
+                  "and the verify read failed (HTTP ${VERIFY_STATUS:-unknown}):" \
+                  "cannot tell 'already deleted' from a token without access"
                 echo "deleted=false" >> "$GITHUB_OUTPUT"
                 echo "reason=unknown" >> "$GITHUB_OUTPUT"
                 ;;

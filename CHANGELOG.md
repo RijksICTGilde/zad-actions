@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Internal
+- yamllint runs with `--strict` from a shared `.yamllint.yaml`, in pre-commit and CI alike; CI now lints every YAML file instead of a hand-picked list that missed `scheduled-cleanup`. `.editorconfig` sets the same 150-column limit for YAML
+- The pre-commit.ci settings moved into `.pre-commit-config.yaml`: pre-commit.ci only reads the `ci:` key there, so `.pre-commit-ci.yaml` was ignored
+
 ## [4.2.0] - 2026-09-11
 
 ### Upgrading

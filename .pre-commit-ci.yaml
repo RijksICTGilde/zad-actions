@@ -1,4 +1,0 @@
-ci:
-  autoupdate_schedule: weekly
-  # Skip hooks that are already run by CI workflow (avoid duplicates)
-  skip: [shellcheck, actionlint, yamllint]

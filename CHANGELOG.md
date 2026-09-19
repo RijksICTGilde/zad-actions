@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- `deploy`, `cleanup` and `scheduled-cleanup`: pin uv to 0.12.17 in the `setup-uv` step. Without a version, setup-uv resolves "latest" through the GitHub API whenever the caller's workspace root has no `uv.toml` or `pyproject.toml`; on a Forgejo runner `github.token` is not valid there, so the lookup ran anonymously and failed intermittently on the rate limit
+- `deploy`, `cleanup` and `scheduled-cleanup`: turn off the setup-uv cache. uv only installs zad-cli here, so the cache had nothing to hold and every run warned that its dependency glob matched no files
+
 ## [4.2.0] - 2026-09-11
 
 ### Upgrading

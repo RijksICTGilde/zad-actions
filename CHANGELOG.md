@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Internal
+- Dependabot also scans `deploy/`, `cleanup/` and `scheduled-cleanup/`. With only `/` it read `.github/workflows` and a root `action.yml`, so the actions the composite actions pull in (such as `astral-sh/setup-uv`) never got an update
+
 ## [4.2.0] - 2026-09-11
 
 ### Upgrading

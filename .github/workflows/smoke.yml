@@ -22,6 +22,27 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      # The one claim in this action that no stub can catch. Whether `Deployment successful`
+      # precedes an error is a property of the log, and a later step cannot read the job log
+      # it is running inside, so it is asserted on the step's script instead. Reverting the
+      # line to where it used to sit (straight after the create's exit check) makes this red
+      # and every other case in this job green.
+      - name: A success claim must not precede a possible error
+        run: |
+          awk '/^    - name: / { inside = ($0 == "    - name: Deploy to ZAD") } inside' \
+            deploy/action.yml > "$RUNNER_TEMP/deploy-step.txt"
+
+          CLAIMS=$(grep -c 'echo "Deployment successful"' "$RUNNER_TEMP/deploy-step.txt" || true)
+          [ "$CLAIMS" -eq 1 ] || { echo "::error::expected exactly one success claim, found $CLAIMS"; exit 1; }
+
+          AT=$(grep -n 'echo "Deployment successful"' "$RUNNER_TEMP/deploy-step.txt" | cut -d: -f1)
+          LAST_FAILURE=$(grep -n 'exit 1' "$RUNNER_TEMP/deploy-step.txt" | tail -n1 | cut -d: -f1)
+          [ -n "$LAST_FAILURE" ] || { echo "::error::no failure path found in the deploy step"; exit 1; }
+          [ "$LAST_FAILURE" -lt "$AT" ] || {
+            echo "::error::'Deployment successful' (line $AT) can be printed before a failure (line $LAST_FAILURE)"
+            exit 1
+          }
+
       - name: Put the stubs on PATH
         run: |
           chmod +x tests/stubs/*
@@ -75,6 +96,590 @@ jobs:
         run: |
           [ "$URL" = "https://api.example" ] || { echo "::error::expected the api url, got '$URL'"; exit 1; }
 
+      # Each case needs its own ZAD_STUB_STATE (the `task wait` call counter) and writes out
+      # the whole set of stub answers, empty where unused: GITHUB_ENV carries a value into
+      # every later step, and a leftover ZAD_STUB_TASK_WAIT_<n> beats the unnumbered answer.
+
+      - name: A hand-over, with a completed task on the other side
+        run: |
+          {
+            printf 'ZAD_STUB_CREATE={"status":"superseded","superseded_by":%s}\n' \
+              '{"task_id":"task-aaa","task_type":"configure_service","project_name":"testproject"}'
+            echo 'ZAD_STUB_TASK_WAIT_1={"status":"completed","deployment":"pr123"}'
+            echo 'ZAD_STUB_TASK_WAIT_2='
+            echo 'ZAD_STUB_TASK_WAIT='
+            echo 'ZAD_STUB_PENDING={"count":0}'
+            echo 'ZAD_STUB_PENDING_EXIT='
+            echo 'ZAD_STUB_URLS={"web":"https://web.example","api":"https://api.example"}'
+            echo "ZAD_STUB_STATE=$RUNNER_TEMP/handover-1.calls"
+            echo "ZAD_STUB_LOG=$RUNNER_TEMP/handover-1.log"
+          } >> "$GITHUB_ENV"
+
+      - name: A hand-over ends in one verdict, with the deployment's addresses
+        id: handover
+        uses: ./deploy
+        with:
+          api-key: stub
+          project-id: testproject
+          deployment-name: pr123
+          components: '[{"name":"web","image":"ghcr.io/o/web:pr-123"},{"name":"api","image":"ghcr.io/o/api:pr-123"}]'
+
+      - name: The action must have waited for the task named in superseded_by
+        env:
+          URL: ${{ steps.handover.outputs.url }}
+          URLS: ${{ steps.handover.outputs.urls }}
+        run: |
+          echo "--- zad calls ---"; cat "$ZAD_STUB_LOG"
+
+          # The log is the assertion surface, not the job output: this proves the action
+          # called `task wait` with the id out of superseded_by rather than merely printing
+          # a line about it.
+          grep -q 'task wait task-aaa' "$ZAD_STUB_LOG" || { echo "::error::no task wait for the task that took over"; exit 1; }
+          [ "$URL" = "https://web.example" ] || { echo "::error::expected the web url, got '$URL'"; exit 1; }
+          [ "$(echo "$URLS" | jq -r '.api')" = "https://api.example" ] || { echo "::error::wrong api url"; exit 1; }
+
+      - name: A chain of two hand-overs, single component
+        run: |
+          {
+            echo 'ZAD_STUB_CREATE={"status":"superseded","superseded_by":{"task_id":"task-aaa","task_type":"configure_service"}}'
+            echo 'ZAD_STUB_TASK_WAIT_1={"status":"superseded","superseded_by":{"task_id":"task-bbb","task_type":"refresh_project"}}'
+            echo 'ZAD_STUB_TASK_WAIT_2={"status":"completed"}'
+            echo 'ZAD_STUB_TASK_WAIT='
+            echo 'ZAD_STUB_PENDING={"count":0}'
+            echo 'ZAD_STUB_PENDING_EXIT='
+            echo 'ZAD_STUB_URLS={"web":"https://web.example"}'
+            echo "ZAD_STUB_STATE=$RUNNER_TEMP/handover-2.calls"
+            echo "ZAD_STUB_LOG=$RUNNER_TEMP/handover-2.log"
+          } >> "$GITHUB_ENV"
+
+      - name: Both hops are followed, in order
+        id: chain
+        uses: ./deploy
+        with:
+          api-key: stub
+          project-id: testproject
+          deployment-name: pr123
+          component: web
+          image: ghcr.io/o/web:pr-123
+
+      - name: The second task is waited for after the first, and url is the bare address
+        env:
+          URL: ${{ steps.chain.outputs.url }}
+        run: |
+          echo "--- zad calls ---"; cat "$ZAD_STUB_LOG"
+          WAITS=$(grep -c 'task wait' "$ZAD_STUB_LOG" || true)
+          [ "$WAITS" -eq 2 ] || { echo "::error::expected 2 task waits, saw $WAITS"; exit 1; }
+          FIRST=$(grep -n 'task wait task-aaa' "$ZAD_STUB_LOG" | cut -d: -f1 | head -n1)
+          SECOND=$(grep -n 'task wait task-bbb' "$ZAD_STUB_LOG" | cut -d: -f1 | head -n1)
+          if [ -z "$FIRST" ] || [ -z "$SECOND" ]; then
+            echo "::error::both task ids must appear"
+            exit 1
+          fi
+          [ "$FIRST" -lt "$SECOND" ] || { echo "::error::the second hop was waited for first"; exit 1; }
+          [ "$URL" = "https://web.example" ] || { echo "::error::expected the web url, got '$URL'"; exit 1; }
+
+      - name: The task that took over fails
+        run: |
+          {
+            echo 'ZAD_STUB_CREATE={"status":"superseded","superseded_by":{"task_id":"task-ccc","task_type":"configure_service"}}'
+            echo 'ZAD_STUB_TASK_WAIT={"status":"failed","message":"image pull failed for web"}'
+            echo 'ZAD_STUB_TASK_WAIT_1='
+            echo 'ZAD_STUB_TASK_WAIT_2='
+            echo 'ZAD_STUB_PENDING={"count":0}'
+            echo 'ZAD_STUB_PENDING_EXIT='
+            echo 'ZAD_STUB_URLS={"web":"https://web.example"}'
+            echo "ZAD_STUB_STATE=$RUNNER_TEMP/handover-3.calls"
+            echo "ZAD_STUB_LOG=$RUNNER_TEMP/handover-3.log"
+          } >> "$GITHUB_ENV"
+
+      - name: A failed taking-over task must fail the step
+        id: failed-handover
+        continue-on-error: true
+        uses: ./deploy
+        with:
+          api-key: stub
+          project-id: testproject
+          deployment-name: pr123
+          component: web
+          image: ghcr.io/o/web:pr-123
+
+      - name: No address may be published for a rollout that failed
+        env:
+          OUTCOME: ${{ steps.failed-handover.outcome }}
+          URL: ${{ steps.failed-handover.outputs.url }}
+        run: |
+          [ "$OUTCOME" = "failure" ] || { echo "::error::expected the step to fail, outcome was '$OUTCOME'"; exit 1; }
+          [ -z "$URL" ] || { echo "::error::a url was published for a failed hand-over: '$URL'"; exit 1; }
+          # The URL lookup must not even have been reached: the addresses it returns come
+          # from the project file and say nothing about what the failed task rolled out.
+          if grep -q 'deployment url' "$ZAD_STUB_LOG"; then
+            echo "::error::the action asked for addresses after the hand-over had failed"
+            cat "$ZAD_STUB_LOG"
+            exit 1
+          fi
+
+      - name: The wait on the task that took over fails
+        run: |
+          {
+            echo 'ZAD_STUB_CREATE={"status":"superseded","superseded_by":{"task_id":"task-eee","task_type":"configure_service"}}'
+            echo 'ZAD_STUB_TASK_WAIT={"status_code":404,"headline":"Task not found.","next_steps":["Check the task id with: zadctl task list"]}'
+            echo 'ZAD_STUB_TASK_WAIT_1='
+            echo 'ZAD_STUB_TASK_WAIT_2='
+            echo 'ZAD_STUB_TASK_WAIT_EXIT_1=1'
+            echo 'ZAD_STUB_PENDING={"count":0}'
+            echo 'ZAD_STUB_PENDING_EXIT='
+            echo 'ZAD_STUB_URLS={"web":"https://web.example"}'
+            echo "ZAD_STUB_STATE=$RUNNER_TEMP/handover-6.calls"
+            echo "ZAD_STUB_LOG=$RUNNER_TEMP/handover-6.log"
+          } >> "$GITHUB_ENV"
+
+      # The likelier of the two failing-hand-over shapes: the CLI raises on a task that
+      # ends failed or cancelled, so the wait exits non-zero with a diagnosis on stdout
+      # rather than answering with a failed document.
+      - name: A wait that exits non-zero must fail the step too
+        id: wait-failed
+        continue-on-error: true
+        uses: ./deploy
+        with:
+          api-key: stub
+          project-id: testproject
+          deployment-name: pr123
+          component: web
+          image: ghcr.io/o/web:pr-123
+
+      - name: A hand-over that could not be waited for is not a deploy
+        env:
+          OUTCOME: ${{ steps.wait-failed.outcome }}
+          URL: ${{ steps.wait-failed.outputs.url }}
+        run: |
+          [ "$OUTCOME" = "failure" ] || { echo "::error::expected the step to fail, outcome was '$OUTCOME'"; exit 1; }
+          [ -z "$URL" ] || { echo "::error::a url was published after a wait that failed: '$URL'"; exit 1; }
+          grep -q 'task wait task-eee' "$ZAD_STUB_LOG" || { echo "::error::the wait was never attempted"; exit 1; }
+
+      - name: The chain ends with changes still waiting to be rolled out
+        run: |
+          {
+            echo 'ZAD_STUB_CREATE={"status":"superseded","superseded_by":{"task_id":"task-ddd","task_type":"configure_service"}}'
+            echo 'ZAD_STUB_TASK_WAIT={"status":"completed"}'
+            echo 'ZAD_STUB_TASK_WAIT_1='
+            echo 'ZAD_STUB_TASK_WAIT_2='
+            echo 'ZAD_STUB_TASK_WAIT_EXIT_1='
+            echo 'ZAD_STUB_PENDING={"project":"testproject","count":2,"task_types":["configure_service"]}'
+            echo 'ZAD_STUB_PENDING_EXIT='
+            echo 'ZAD_STUB_URLS={"web":"https://web.example"}'
+            echo "ZAD_STUB_STATE=$RUNNER_TEMP/handover-4.calls"
+            echo "ZAD_STUB_LOG=$RUNNER_TEMP/handover-4.log"
+          } >> "$GITHUB_ENV"
+
+      - name: A deploy over changes that are only saved must fail
+        id: pending-rollout
+        continue-on-error: true
+        uses: ./deploy
+        with:
+          api-key: stub
+          project-id: testproject
+          deployment-name: pr123
+          component: web
+          image: ghcr.io/o/web:pr-123
+
+      - name: Saved but not rolled out is not a deploy
+        env:
+          OUTCOME: ${{ steps.pending-rollout.outcome }}
+          URL: ${{ steps.pending-rollout.outputs.url }}
+        run: |
+          [ "$OUTCOME" = "failure" ] || { echo "::error::expected the step to fail, outcome was '$OUTCOME'"; exit 1; }
+          [ -z "$URL" ] || { echo "::error::a url was published while a change was still waiting: '$URL'"; exit 1; }
+
+      - name: A hand-over chain that never ends
+        run: |
+          {
+            echo 'ZAD_STUB_CREATE={"status":"superseded","superseded_by":{"task_id":"task-loop","task_type":"configure_service"}}'
+            echo 'ZAD_STUB_TASK_WAIT={"status":"superseded","superseded_by":{"task_id":"task-loop","task_type":"configure_service"}}'
+            echo 'ZAD_STUB_TASK_WAIT_1='
+            echo 'ZAD_STUB_TASK_WAIT_2='
+            echo 'ZAD_STUB_TASK_WAIT_EXIT_1='
+            echo 'ZAD_STUB_PENDING={"count":0}'
+            echo 'ZAD_STUB_PENDING_EXIT='
+            echo 'ZAD_STUB_URLS={"web":"https://web.example"}'
+            echo "ZAD_STUB_STATE=$RUNNER_TEMP/handover-5.calls"
+            echo "ZAD_STUB_LOG=$RUNNER_TEMP/handover-5.log"
+          } >> "$GITHUB_ENV"
+
+      - name: An endless chain must end on the hop cap
+        id: endless
+        continue-on-error: true
+        uses: ./deploy
+        with:
+          api-key: stub
+          project-id: testproject
+          deployment-name: pr123
+          component: web
+          image: ghcr.io/o/web:pr-123
+          # The stub answers instantly, so this bounds nothing here; it is set so the case
+          # cannot become a job-timeout if it is ever run against something slower.
+          task-timeout: '5'
+
+      - name: The cap stops at ten hand-overs rather than running until the job timeout
+        env:
+          OUTCOME: ${{ steps.endless.outcome }}
+        run: |
+          [ "$OUTCOME" = "failure" ] || { echo "::error::expected the step to fail, outcome was '$OUTCOME'"; exit 1; }
+          WAITS=$(grep -c 'task wait' "$ZAD_STUB_LOG" || true)
+          [ "$WAITS" -eq 10 ] || { echo "::error::expected 10 waits before giving up, saw $WAITS"; exit 1; }
+          [ "$(cat "$RUNNER_TEMP/handover-5.calls")" = "10" ] || { echo "::error::the call counter disagrees"; exit 1; }
+
+      - name: The final task carries the waiting count itself
+        run: |
+          {
+            echo 'ZAD_STUB_CREATE={"status":"superseded","superseded_by":{"task_id":"task-ggg","task_type":"configure_service"}}'
+            echo 'ZAD_STUB_TASK_WAIT={"status":"completed","pending_rollout":{"count":3}}'
+            echo 'ZAD_STUB_TASK_WAIT_1='
+            echo 'ZAD_STUB_TASK_WAIT_2='
+            echo 'ZAD_STUB_TASK_WAIT_EXIT_1='
+            echo 'ZAD_STUB_PENDING={"count":0}'
+            echo 'ZAD_STUB_PENDING_EXIT='
+            echo 'ZAD_STUB_URLS={"web":"https://web.example"}'
+            echo "ZAD_STUB_STATE=$RUNNER_TEMP/handover-7.calls"
+            echo "ZAD_STUB_LOG=$RUNNER_TEMP/handover-7.log"
+          } >> "$GITHUB_ENV"
+
+      - name: A count on the task result is read from there, not asked for again
+        id: pending-on-result
+        continue-on-error: true
+        uses: ./deploy
+        with:
+          api-key: stub
+          project-id: testproject
+          deployment-name: pr123
+          component: web
+          image: ghcr.io/o/web:pr-123
+
+      - name: The waiting count must be taken from the task that finished the work
+        env:
+          OUTCOME: ${{ steps.pending-on-result.outcome }}
+          URL: ${{ steps.pending-on-result.outputs.url }}
+        run: |
+          cat "$ZAD_STUB_LOG"
+          [ "$OUTCOME" = "failure" ] || { echo "::error::expected the step to fail, outcome was '$OUTCOME'"; exit 1; }
+          [ -z "$URL" ] || { echo "::error::a url was published while a change was still waiting: '$URL'"; exit 1; }
+          # The stub's `project pending` would have answered 0 here, so a step that asked
+          # it anyway would report this deploy as a success.
+          if grep -q 'project pending' "$ZAD_STUB_LOG"; then
+            echo "::error::the count was on the task result and was asked for a second time anyway"
+            exit 1
+          fi
+
+      - name: A project with changes waiting, and a deploy that was not handed over
+        run: |
+          {
+            echo 'ZAD_STUB_CREATE={"status":"ok"}'
+            echo 'ZAD_STUB_TASK_WAIT='
+            echo 'ZAD_STUB_TASK_WAIT_1='
+            echo 'ZAD_STUB_TASK_WAIT_2='
+            echo 'ZAD_STUB_TASK_WAIT_EXIT_1='
+            echo 'ZAD_STUB_PENDING={"count":7}'
+            echo 'ZAD_STUB_PENDING_EXIT='
+            echo 'ZAD_STUB_URLS={"web":"https://web.example"}'
+            echo "ZAD_STUB_STATE=$RUNNER_TEMP/handover-8.calls"
+            echo "ZAD_STUB_LOG=$RUNNER_TEMP/handover-8.log"
+          } >> "$GITHUB_ENV"
+
+      - name: Somebody else's saved change must not fail a plain deploy
+        id: plain-with-pending
+        uses: ./deploy
+        with:
+          api-key: stub
+          project-id: testproject
+          deployment-name: pr123
+          component: web
+          image: ghcr.io/o/web:pr-123
+
+      - name: The count is a property of the project, so it is only read after a hand-over
+        env:
+          URL: ${{ steps.plain-with-pending.outputs.url }}
+        run: |
+          cat "$ZAD_STUB_LOG"
+          # Reaching this step is half the assertion: the step above has no
+          # continue-on-error, so a deploy that failed over a count of 7 that it never
+          # caused would have stopped the job here.
+          [ "$URL" = "https://web.example" ] || { echo "::error::expected the web url, got '$URL'"; exit 1; }
+          if grep -q 'project pending' "$ZAD_STUB_LOG"; then
+            echo "::error::a deploy that was not handed over asked how many changes are waiting"
+            exit 1
+          fi
+
+      - name: The task that took over is cancelled
+        run: |
+          {
+            echo 'ZAD_STUB_CREATE={"status":"superseded","superseded_by":{"task_id":"task-hhh","task_type":"configure_service"}}'
+            echo 'ZAD_STUB_TASK_WAIT={"status":"cancelled","message":"cancelled from the console"}'
+            echo 'ZAD_STUB_TASK_WAIT_1='
+            echo 'ZAD_STUB_TASK_WAIT_2='
+            echo 'ZAD_STUB_TASK_WAIT_EXIT_1='
+            echo 'ZAD_STUB_PENDING={"count":0}'
+            echo 'ZAD_STUB_PENDING_EXIT='
+            echo 'ZAD_STUB_URLS={"web":"https://web.example"}'
+            echo "ZAD_STUB_STATE=$RUNNER_TEMP/handover-9.calls"
+            echo "ZAD_STUB_LOG=$RUNNER_TEMP/handover-9.log"
+          } >> "$GITHUB_ENV"
+
+      - name: A cancelled taking-over task must fail the step too
+        id: cancelled-handover
+        continue-on-error: true
+        uses: ./deploy
+        with:
+          api-key: stub
+          project-id: testproject
+          deployment-name: pr123
+          component: web
+          image: ghcr.io/o/web:pr-123
+
+      - name: Cancelled is an end state like failed, not a finished rollout
+        env:
+          OUTCOME: ${{ steps.cancelled-handover.outcome }}
+          URL: ${{ steps.cancelled-handover.outputs.url }}
+        run: |
+          [ "$OUTCOME" = "failure" ] || { echo "::error::expected the step to fail, outcome was '$OUTCOME'"; exit 1; }
+          [ -z "$URL" ] || { echo "::error::a url was published for a cancelled rollout: '$URL'"; exit 1; }
+          grep -q 'task wait task-hhh' "$ZAD_STUB_LOG" || { echo "::error::the wait was never attempted"; exit 1; }
+          if grep -q 'deployment url' "$ZAD_STUB_LOG"; then
+            echo "::error::the action asked for addresses after the rollout was cancelled"
+            exit 1
+          fi
+
+      - name: A hand-over that names no successor
+        run: |
+          {
+            echo 'ZAD_STUB_CREATE={"status":"superseded"}'
+            echo 'ZAD_STUB_TASK_WAIT={"status":"completed"}'
+            echo 'ZAD_STUB_TASK_WAIT_1='
+            echo 'ZAD_STUB_TASK_WAIT_2='
+            echo 'ZAD_STUB_TASK_WAIT_EXIT_1='
+            echo 'ZAD_STUB_PENDING={"count":0}'
+            echo 'ZAD_STUB_PENDING_EXIT='
+            echo 'ZAD_STUB_URLS={"web":"https://web.example"}'
+            echo "ZAD_STUB_STATE=$RUNNER_TEMP/handover-10.calls"
+            echo "ZAD_STUB_LOG=$RUNNER_TEMP/handover-10.log"
+          } >> "$GITHUB_ENV"
+
+      - name: A superseded result with nothing to wait for must fail the step
+        id: no-successor
+        continue-on-error: true
+        uses: ./deploy
+        with:
+          api-key: stub
+          project-id: testproject
+          deployment-name: pr123
+          component: web
+          image: ghcr.io/o/web:pr-123
+
+      - name: Nothing to wait for is not the same as nothing to wait for anymore
+        env:
+          OUTCOME: ${{ steps.no-successor.outcome }}
+          URL: ${{ steps.no-successor.outputs.url }}
+        run: |
+          [ "$OUTCOME" = "failure" ] || { echo "::error::expected the step to fail, outcome was '$OUTCOME'"; exit 1; }
+          [ -z "$URL" ] || { echo "::error::a url was published for a rollout nothing was waited for: '$URL'"; exit 1; }
+          # The stub would have answered a completed task to any wait, so a step that
+          # waited for an empty id would have reported this hand-over as a success.
+          if grep -q 'task wait' "$ZAD_STUB_LOG"; then
+            echo "::error::a wait was attempted without a task id to wait for"
+            cat "$ZAD_STUB_LOG"
+            exit 1
+          fi
+
+      - name: A successor whose task id could forge log lines
+        run: |
+          {
+            printf 'ZAD_STUB_CREATE={"status":"superseded","superseded_by":%s}\n' \
+              '{"task_id":"task-iii\n::error::forged by a task id","task_type":"configure_service"}'
+            echo 'ZAD_STUB_TASK_WAIT={"status":"completed"}'
+            echo 'ZAD_STUB_TASK_WAIT_1='
+            echo 'ZAD_STUB_TASK_WAIT_2='
+            echo 'ZAD_STUB_TASK_WAIT_EXIT_1='
+            echo 'ZAD_STUB_PENDING={"count":0}'
+            echo 'ZAD_STUB_PENDING_EXIT='
+            echo 'ZAD_STUB_URLS={"web":"https://web.example"}'
+            echo "ZAD_STUB_STATE=$RUNNER_TEMP/handover-11.calls"
+            echo "ZAD_STUB_LOG=$RUNNER_TEMP/handover-11.log"
+          } >> "$GITHUB_ENV"
+
+      - name: An unusable task id must fail the step rather than be logged
+        id: forged-id
+        continue-on-error: true
+        uses: ./deploy
+        with:
+          api-key: stub
+          project-id: testproject
+          deployment-name: pr123
+          component: web
+          image: ghcr.io/o/web:pr-123
+
+      - name: A task id goes into an annotation, so it is refused before it gets there
+        env:
+          OUTCOME: ${{ steps.forged-id.outcome }}
+          URL: ${{ steps.forged-id.outputs.url }}
+        run: |
+          [ "$OUTCOME" = "failure" ] || { echo "::error::expected the step to fail, outcome was '$OUTCOME'"; exit 1; }
+          [ -z "$URL" ] || { echo "::error::a url was published for an unusable task id: '$URL'"; exit 1; }
+          # The guard sits before the notice that names the id. Had the value reached a
+          # wait, the stub's completed answer would have made this a successful deploy.
+          if grep -q 'task wait' "$ZAD_STUB_LOG"; then
+            echo "::error::a task id carrying a newline was passed on to a wait"
+            cat "$ZAD_STUB_LOG"
+            exit 1
+          fi
+
+      - name: The waiting count cannot be read at all
+        run: |
+          {
+            echo 'ZAD_STUB_CREATE={"status":"superseded","superseded_by":{"task_id":"task-jjj","task_type":"configure_service"}}'
+            echo 'ZAD_STUB_TASK_WAIT={"status":"completed"}'
+            echo 'ZAD_STUB_TASK_WAIT_1='
+            echo 'ZAD_STUB_TASK_WAIT_2='
+            echo 'ZAD_STUB_TASK_WAIT_EXIT_1='
+            echo 'ZAD_STUB_PENDING={"status_code":403,"headline":"Not allowed to list pending changes."}'
+            echo 'ZAD_STUB_PENDING_EXIT=1'
+            echo 'ZAD_STUB_URLS={"web":"https://web.example"}'
+            echo "ZAD_STUB_STATE=$RUNNER_TEMP/handover-12.calls"
+            echo "ZAD_STUB_LOG=$RUNNER_TEMP/handover-12.log"
+          } >> "$GITHUB_ENV"
+
+      - name: An unreadable count must not fail a deploy that otherwise succeeded
+        id: pending-unreadable
+        uses: ./deploy
+        with:
+          api-key: stub
+          project-id: testproject
+          deployment-name: pr123
+          component: web
+          image: ghcr.io/o/web:pr-123
+
+      - name: Best effort means a warning and the addresses, not a failed deploy
+        env:
+          URL: ${{ steps.pending-unreadable.outputs.url }}
+        run: |
+          cat "$ZAD_STUB_LOG"
+          # No continue-on-error above: a step that treated an unreadable count as a
+          # reason to fail would have stopped the job before this one.
+          [ "$URL" = "https://web.example" ] || { echo "::error::expected the web url, got '$URL'"; exit 1; }
+          grep -q 'project pending' "$ZAD_STUB_LOG" || { echo "::error::the count was never asked for"; exit 1; }
+
+      - name: The waiting count comes back as something other than an object
+        run: |
+          {
+            echo 'ZAD_STUB_CREATE={"status":"superseded","superseded_by":{"task_id":"task-kkk","task_type":"configure_service"}}'
+            echo 'ZAD_STUB_TASK_WAIT={"status":"completed"}'
+            echo 'ZAD_STUB_TASK_WAIT_1='
+            echo 'ZAD_STUB_TASK_WAIT_2='
+            echo 'ZAD_STUB_TASK_WAIT_EXIT_1='
+            # Valid JSON, so `jq empty` passes it; `.count` on an array is a jq error.
+            echo 'ZAD_STUB_PENDING=[]'
+            echo 'ZAD_STUB_PENDING_EXIT='
+            echo 'ZAD_STUB_URLS={"web":"https://web.example"}'
+            echo "ZAD_STUB_STATE=$RUNNER_TEMP/handover-13.calls"
+            echo "ZAD_STUB_LOG=$RUNNER_TEMP/handover-13.log"
+          } >> "$GITHUB_ENV"
+
+      - name: A count of an unexpected shape must not fail a deploy either
+        id: pending-not-an-object
+        uses: ./deploy
+        with:
+          api-key: stub
+          project-id: testproject
+          deployment-name: pr123
+          component: web
+          image: ghcr.io/o/web:pr-123
+
+      - name: The shape of the answer is the action's problem, not the deploy's
+        env:
+          URL: ${{ steps.pending-not-an-object.outputs.url }}
+        run: |
+          cat "$ZAD_STUB_LOG"
+          # No continue-on-error above: a jq error on the count would have taken the step
+          # down with rc=5 and no annotation, stopping the job before this one.
+          [ "$URL" = "https://web.example" ] || { echo "::error::expected the web url, got '$URL'"; exit 1; }
+          grep -q 'project pending' "$ZAD_STUB_LOG" || { echo "::error::the count was never asked for"; exit 1; }
+
+      - name: The final task says nothing is waiting, while the project says otherwise
+        run: |
+          {
+            echo 'ZAD_STUB_CREATE={"status":"superseded","superseded_by":{"task_id":"task-lll","task_type":"configure_service"}}'
+            echo 'ZAD_STUB_TASK_WAIT={"status":"completed","pending_rollout":{"count":0}}'
+            echo 'ZAD_STUB_TASK_WAIT_1='
+            echo 'ZAD_STUB_TASK_WAIT_2='
+            echo 'ZAD_STUB_TASK_WAIT_EXIT_1='
+            # A count this deploy did not cause. Asking for it would fail the step, so
+            # this is also what makes the assertion below more than a log check.
+            echo 'ZAD_STUB_PENDING={"count":4}'
+            echo 'ZAD_STUB_PENDING_EXIT='
+            echo 'ZAD_STUB_URLS={"web":"https://web.example"}'
+            echo "ZAD_STUB_STATE=$RUNNER_TEMP/handover-14.calls"
+            echo "ZAD_STUB_LOG=$RUNNER_TEMP/handover-14.log"
+          } >> "$GITHUB_ENV"
+
+      - name: A zero on the final task is an answer, not a missing one
+        id: pending-zero-on-result
+        uses: ./deploy
+        with:
+          api-key: stub
+          project-id: testproject
+          deployment-name: pr123
+          component: web
+          image: ghcr.io/o/web:pr-123
+
+      - name: The task that finished the work is believed when it says zero
+        env:
+          URL: ${{ steps.pending-zero-on-result.outputs.url }}
+        run: |
+          cat "$ZAD_STUB_LOG"
+          # No continue-on-error above: a step that read a count of 0 as "no count on the
+          # result" would have fallen through to the project-wide 4 and failed the deploy
+          # before this step ran.
+          [ "$URL" = "https://web.example" ] || { echo "::error::expected the web url, got '$URL'"; exit 1; }
+          if grep -q 'project pending' "$ZAD_STUB_LOG"; then
+            echo "::error::the final task answered the question and the project was asked anyway"
+            exit 1
+          fi
+
+      - name: The count on the final task comes back as something other than an object
+        run: |
+          {
+            echo 'ZAD_STUB_CREATE={"status":"superseded","superseded_by":{"task_id":"task-mmm","task_type":"configure_service"}}'
+            # `type == "object"` answers for the task document, not for `pending_rollout`,
+            # so `.count` on this is a jq error in the step's own shell.
+            echo 'ZAD_STUB_TASK_WAIT={"status":"completed","pending_rollout":3}'
+            echo 'ZAD_STUB_TASK_WAIT_1='
+            echo 'ZAD_STUB_TASK_WAIT_2='
+            echo 'ZAD_STUB_TASK_WAIT_EXIT_1='
+            echo 'ZAD_STUB_PENDING={"count":0}'
+            echo 'ZAD_STUB_PENDING_EXIT='
+            echo 'ZAD_STUB_URLS={"web":"https://web.example"}'
+            echo "ZAD_STUB_STATE=$RUNNER_TEMP/handover-15.calls"
+            echo "ZAD_STUB_LOG=$RUNNER_TEMP/handover-15.log"
+          } >> "$GITHUB_ENV"
+
+      - name: A shape the task result was not expected to have must not end the step
+        id: pending-shape-on-result
+        uses: ./deploy
+        with:
+          api-key: stub
+          project-id: testproject
+          deployment-name: pr123
+          component: web
+          image: ghcr.io/o/web:pr-123
+
+      - name: An unreadable count on the task falls through to the project, not to rc=5
+        env:
+          URL: ${{ steps.pending-shape-on-result.outputs.url }}
+        run: |
+          cat "$ZAD_STUB_LOG"
+          # No continue-on-error above: a jq error on the count would have taken the step
+          # down with rc=5 and no annotation, stopping the job before this one.
+          [ "$URL" = "https://web.example" ] || { echo "::error::expected the web url, got '$URL'"; exit 1; }
+          # The result does not carry the count, so the project is the right place to ask.
+          grep -q 'project pending' "$ZAD_STUB_LOG" || { echo "::error::the count was never asked for"; exit 1; }
+
   cleanup:
     name: cleanup
     runs-on: ubuntu-latest
@@ -121,3 +726,414 @@ jobs:
             exit 1
           fi
           grep -q 'environments/pr123 ' "$GH_STUB_LOG" || { echo "::error::no delete for the plain environment name"; exit 1; }
+
+  zad-common:
+    name: zad-common
+    runs-on: ubuntu-latest
+    # resolve_task_handover's promises are about what it SAYS: notice and not warning, a
+    # failure that names the task, a cap that ends with a message. Unreadable from the
+    # deploy job, so it is called directly here with its stderr captured.
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Put the stubs on PATH
+        run: |
+          chmod +x tests/stubs/*
+          echo "$PWD/tests/stubs" >> "$GITHUB_PATH"
+
+      - name: A result that was not handed over comes back unchanged, and in silence
+        run: |
+          source scripts/zad-common.sh
+          export ZAD_STUB_LOG="$RUNNER_TEMP/plain.log"
+          RESULT='{"status":"completed","deployment":"pr123"}'
+
+          OUT=$(resolve_task_handover "$RESULT" "Deployment" 2>"$RUNNER_TEMP/plain.err") && RC=0 || RC=$?
+
+          [ "$RC" -eq 0 ] || { echo "::error::a completed result must resolve to success, rc=$RC"; exit 1; }
+          # Byte-identical, not merely equivalent: the caller assigns this back over its
+          # own RESULT and then reads fields out of it.
+          [ "$OUT" = "$RESULT" ] || { echo "::error::the document was not echoed back unchanged: '$OUT'"; exit 1; }
+          [ ! -s "$RUNNER_TEMP/plain.err" ] || {
+            echo "::error::a deploy that was not handed over must not say anything about one"
+            cat "$RUNNER_TEMP/plain.err"
+            exit 1
+          }
+          [ ! -f "$ZAD_STUB_LOG" ] || { echo "::error::the CLI was called for a task nobody handed over"; cat "$ZAD_STUB_LOG"; exit 1; }
+
+      - name: A result that is not JSON comes back unchanged, because diagnosing it is the caller's job
+        run: |
+          source scripts/zad-common.sh
+          export ZAD_STUB_LOG="$RUNNER_TEMP/notjson.log"
+          RESULT='zadctl: error: connection reset by peer'
+
+          OUT=$(resolve_task_handover "$RESULT" "Deployment" 2>"$RUNNER_TEMP/notjson.err") && RC=0 || RC=$?
+
+          # The caller already checked the exit code of the create; a helper that turned
+          # unreadable output into its own failure would report the wrong cause for it.
+          [ "$RC" -eq 0 ] || { echo "::error::expected the input to pass through, rc=$RC"; exit 1; }
+          [ "$OUT" = "$RESULT" ] || { echo "::error::expected the input back unchanged, got '$OUT'"; exit 1; }
+          [ ! -f "$ZAD_STUB_LOG" ] || { echo "::error::a wait was attempted on unreadable output"; exit 1; }
+
+      - name: A hand-over reads as a notice that names the task and its type
+        run: |
+          source scripts/zad-common.sh
+          export ZAD_STUB_LOG="$RUNNER_TEMP/notice.log"
+          export ZAD_STUB_STATE="$RUNNER_TEMP/notice.calls"
+          export ZAD_STUB_TASK_WAIT='{"status":"completed","deployment":"pr123"}'
+          RESULT='{"status":"superseded","superseded_by":{"task_id":"task-aaa","task_type":"configure_service"}}'
+
+          OUT=$(resolve_task_handover "$RESULT" "Deployment" 2>"$RUNNER_TEMP/notice.err") && RC=0 || RC=$?
+          cat "$RUNNER_TEMP/notice.err"
+
+          [ "$RC" -eq 0 ] || { echo "::error::a hand-over to a completed task is a success, rc=$RC"; exit 1; }
+
+          # The CLI documents `status: superseded` as a success and --strict does not fail
+          # a build over it. A warning here would contradict the CLI about the same event.
+          grep -q '^::notice::.*task-aaa' "$RUNNER_TEMP/notice.err" || {
+            echo "::error::the hand-over was not announced as a notice naming the task"
+            exit 1
+          }
+          grep -q 'configure_service' "$RUNNER_TEMP/notice.err" || { echo "::error::the notice does not say what kind of task took over"; exit 1; }
+          ! grep -q '^::warning::\|^::error::' "$RUNNER_TEMP/notice.err" || {
+            echo "::error::a hand-over is a success, so it may not raise a warning or an error"
+            exit 1
+          }
+
+          # Everything a reader sees went to stderr, so stdout is the document and nothing
+          # else. Were a single line to leak, the caller's $(...) would capture it too.
+          [ "$(echo "$OUT" | jq -r '.status')" = "completed" ] || { echo "::error::stdout is not the final document: '$OUT'"; exit 1; }
+          grep -q 'task wait task-aaa' "$ZAD_STUB_LOG" || { echo "::error::the task from superseded_by was never waited for"; exit 1; }
+
+      - name: A task type that could forge a log line is dropped, and the id still named
+        run: |
+          source scripts/zad-common.sh
+          export ZAD_STUB_LOG="$RUNNER_TEMP/forged-type.log"
+          export ZAD_STUB_STATE="$RUNNER_TEMP/forged-type.calls"
+          export ZAD_STUB_TASK_WAIT='{"status":"completed"}'
+          # Only the type is hostile here. An unusable id stops the hand-over outright,
+          # which is a different branch and is covered end to end in the deploy job; a
+          # type is cosmetic, so it is emptied rather than treated as a failure.
+          RESULT=$(jq -nc '{status:"superseded",superseded_by:{task_id:"task-aaa",task_type:"configure_service\n::error::forged by a task type"}}')
+
+          OUT=$(resolve_task_handover "$RESULT" "Deployment" 2>"$RUNNER_TEMP/forged-type.err") && RC=0 || RC=$?
+          cat "$RUNNER_TEMP/forged-type.err"
+
+          [ "$RC" -eq 0 ] || { echo "::error::an unusable task type must not fail the hand-over, rc=$RC"; exit 1; }
+          ! grep -q 'forged by a task type' "$RUNNER_TEMP/forged-type.err" || {
+            echo "::error::a task type reached the log with a line of its own in it"
+            exit 1
+          }
+          grep -q '^::notice::.*task-aaa' "$RUNNER_TEMP/forged-type.err" || { echo "::error::the task id must still be named"; exit 1; }
+          [ "$(echo "$OUT" | jq -r '.status')" = "completed" ] || { echo "::error::the chain did not resolve: '$OUT'"; exit 1; }
+
+      - name: A hand-over whose superseded_by is not an object
+        run: |
+          source scripts/zad-common.sh
+          export ZAD_STUB_LOG="$RUNNER_TEMP/shape.log"
+          export ZAD_STUB_STATE="$RUNNER_TEMP/shape.calls"
+          # `superseded_by` as a string: `.superseded_by.task_id` on that is a jq error and
+          # not an absent value, so without the `?` on the index jq writes its own error
+          # line into the log beside ours, in a language that is not this action's.
+          RESULT='{"status":"superseded","superseded_by":"task-xyz"}'
+
+          OUT=$(resolve_task_handover "$RESULT" "Deployment" 2>"$RUNNER_TEMP/shape.err") && RC=0 || RC=$?
+          cat "$RUNNER_TEMP/shape.err"
+
+          [ "$RC" -ne 0 ] || { echo "::error::a hand-over with no task to wait for must not resolve to success"; exit 1; }
+          grep -q '^::error::.*does not name the task that took over' "$RUNNER_TEMP/shape.err" || {
+            echo "::error::the shape was not reported as a hand-over that names nobody"
+            exit 1
+          }
+          ! grep -q 'jq: error' "$RUNNER_TEMP/shape.err" || {
+            echo "::error::jq's own error reached the log next to ours"
+            exit 1
+          }
+          [ ! -f "$ZAD_STUB_LOG" ] || { echo "::error::a wait was attempted without a task id"; cat "$ZAD_STUB_LOG"; exit 1; }
+          [ "$OUT" = "$RESULT" ] || { echo "::error::expected the document back unchanged, got '$OUT'"; exit 1; }
+
+      - name: A task that took over and failed is named in the failure
+        run: |
+          source scripts/zad-common.sh
+          export ZAD_STUB_LOG="$RUNNER_TEMP/failed.log"
+          export ZAD_STUB_STATE="$RUNNER_TEMP/failed.calls"
+          export ZAD_STUB_TASK_WAIT='{"status":"failed","message":"image pull failed for web"}'
+          RESULT='{"status":"superseded","superseded_by":{"task_id":"task-ccc","task_type":"configure_service"}}'
+
+          OUT=$(resolve_task_handover "$RESULT" "Deployment" 2>"$RUNNER_TEMP/failed.err") && RC=0 || RC=$?
+          cat "$RUNNER_TEMP/failed.err"
+
+          [ "$RC" -ne 0 ] || { echo "::error::a failed task that took over must not resolve to success"; exit 1; }
+          # Without the id, a reader has to go find which of the project's tasks this was.
+          grep -q '^::error::.*task-ccc' "$RUNNER_TEMP/failed.err" || {
+            echo "::error::the failure does not name the task that took over"
+            exit 1
+          }
+          grep -q 'image pull failed for web' "$RUNNER_TEMP/failed.err" || { echo "::error::the task's own message was swallowed"; exit 1; }
+
+          # A task result that only says `failed` is not a diagnosis document. Handing it
+          # to report_zad_error prints "no HTTP status code" and "this could be a network
+          # issue" underneath a line that already named the cause.
+          ! grep -q 'no HTTP status code\|could be a network issue' "$RUNNER_TEMP/failed.err" || {
+            echo "::error::guesswork about the cause was printed over a cause we know"
+            exit 1
+          }
+          # The document still reaches the caller, which decides what to do with it.
+          [ "$(echo "$OUT" | jq -r '.status')" = "failed" ] || { echo "::error::expected the failed document on stdout, got '$OUT'"; exit 1; }
+
+      - name: A failed task that carries a diagnosis is reported through it
+        run: |
+          source scripts/zad-common.sh
+          export ZAD_STUB_LOG="$RUNNER_TEMP/diagnosis.log"
+          export ZAD_STUB_STATE="$RUNNER_TEMP/diagnosis.calls"
+          export ZAD_STUB_TASK_WAIT='{"status":"failed","status_code":404,
+            "headline":"Deployment not found.",
+            "next_steps":["Create it first with: zadctl deployment create"]}'
+          RESULT='{"status":"superseded","superseded_by":{"task_id":"task-fff","task_type":"configure_service"}}'
+
+          OUT=$(resolve_task_handover "$RESULT" "Deployment" 2>"$RUNNER_TEMP/diagnosis.err") && RC=0 || RC=$?
+          cat "$RUNNER_TEMP/diagnosis.err"
+
+          [ "$RC" -ne 0 ] || { echo "::error::expected a failure for a failed task"; exit 1; }
+          grep -q '^::error::.*task-fff' "$RUNNER_TEMP/diagnosis.err" || { echo "::error::the failure does not name the task"; exit 1; }
+          # This one IS a diagnosis, so the shared reporter's remediation is worth having.
+          grep -q 'Not found (HTTP 404)' "$RUNNER_TEMP/diagnosis.err" || { echo "::error::the diagnosis was not reported"; exit 1; }
+          grep -q 'Next step: Create it first' "$RUNNER_TEMP/diagnosis.err" || {
+            echo "::error::the remediation the backend sent was dropped"
+            exit 1
+          }
+          [ "$(echo "$OUT" | jq -r '.status_code')" = "404" ] || { echo "::error::the diagnosis must still reach the caller, got '$OUT'"; exit 1; }
+
+      - name: Both spellings of cancelled end the chain
+        run: |
+          source scripts/zad-common.sh
+          # The helper accepts both spellings, so both are held to the same verdict: a
+          # rollout that was stopped is not a rollout that finished. Only 'cancelled' is
+          # exercised end to end in the deploy job, which left the other spelling free to
+          # be dropped without a test noticing.
+          for STATUS in cancelled canceled; do
+            export ZAD_STUB_LOG="$RUNNER_TEMP/$STATUS.log"
+            export ZAD_STUB_STATE="$RUNNER_TEMP/$STATUS.calls"
+            export ZAD_STUB_TASK_WAIT="{\"status\":\"$STATUS\",\"message\":\"stopped from the console\"}"
+            RESULT='{"status":"superseded","superseded_by":{"task_id":"task-hhh","task_type":"configure_service"}}'
+
+            OUT=$(resolve_task_handover "$RESULT" "Deployment" 2>"$RUNNER_TEMP/$STATUS.err") && RC=0 || RC=$?
+            cat "$RUNNER_TEMP/$STATUS.err"
+
+            [ "$RC" -ne 0 ] || { echo "::error::'$STATUS' resolved to success"; exit 1; }
+            grep -q "^::error::.*task-hhh" "$RUNNER_TEMP/$STATUS.err" || { echo "::error::'$STATUS' does not name the task"; exit 1; }
+            grep -q "$STATUS" "$RUNNER_TEMP/$STATUS.err" || { echo "::error::'$STATUS' is not named as the end state"; exit 1; }
+            [ -n "$OUT" ] || { echo "::error::'$STATUS' returned no document"; exit 1; }
+          done
+
+      - name: A chain that never ends stops on the cap, and says how often it was handed over
+        run: |
+          source scripts/zad-common.sh
+          export ZAD_STUB_LOG="$RUNNER_TEMP/cap.log"
+          export ZAD_STUB_STATE="$RUNNER_TEMP/cap.calls"
+          # Points at itself, so the chain is endless by construction.
+          export ZAD_STUB_TASK_WAIT='{"status":"superseded","superseded_by":{"task_id":"task-loop","task_type":"configure_service"}}'
+          RESULT="$ZAD_STUB_TASK_WAIT"
+
+          OUT=$(resolve_task_handover "$RESULT" "Deployment" 2>"$RUNNER_TEMP/cap.err") && RC=0 || RC=$?
+          cat "$RUNNER_TEMP/cap.err"
+
+          [ "$RC" -ne 0 ] || { echo "::error::an endless chain resolved to success"; exit 1; }
+          WAITS=$(grep -c 'task wait' "$ZAD_STUB_LOG" || true)
+          [ "$WAITS" -eq 10 ] || { echo "::error::expected 10 waits before giving up, saw $WAITS"; exit 1; }
+          # Ending on the cap without saying so leaves a reader with a step that failed
+          # and no sign of why ten waits went by.
+          grep -q '^::error::.*handed over 10 times' "$RUNNER_TEMP/cap.err" || {
+            echo "::error::the cap was reached without a message saying so"
+            exit 1
+          }
+          [ -n "$OUT" ] || { echo "::error::the last document must still reach the caller"; exit 1; }
+
+      - name: A wait that answers something other than JSON is not a finished rollout
+        run: |
+          source scripts/zad-common.sh
+          export ZAD_STUB_LOG="$RUNNER_TEMP/raw.log"
+          export ZAD_STUB_STATE="$RUNNER_TEMP/raw.calls"
+          # Exit 0 with a truncated document: the CLI died while writing it. Reading this
+          # as a completed task would report a rollout nobody confirmed.
+          export ZAD_STUB_TASK_WAIT_RAW='{"status": "comp'
+          RESULT='{"status":"superseded","superseded_by":{"task_id":"task-jjj","task_type":"configure_service"}}'
+
+          OUT=$(resolve_task_handover "$RESULT" "Deployment" 2>"$RUNNER_TEMP/raw.err") && RC=0 || RC=$?
+          cat "$RUNNER_TEMP/raw.err"
+
+          [ "$RC" -ne 0 ] || { echo "::error::an unreadable answer resolved to success"; exit 1; }
+          grep -q '^::error::.*no usable JSON' "$RUNNER_TEMP/raw.err" || { echo "::error::the unreadable answer was not reported as one"; exit 1; }
+          grep -q 'task-jjj' "$RUNNER_TEMP/raw.err" || { echo "::error::the failure does not name the task"; exit 1; }
+          # Unreadable, but still handed back: a caller that logs the raw answer can.
+          [ "$OUT" = "$ZAD_STUB_TASK_WAIT_RAW" ] || { echo "::error::expected the unreadable answer back, got '$OUT'"; exit 1; }
+
+      - name: A status is read only out of a document that has fields
+        run: |
+          source scripts/zad-common.sh
+          # One reading of "what counts as superseded", shared by the caller that asks
+          # whether a hand-over happened and by the loop that follows it. A second copy
+          # would be free to drift, and the drift is silent: a hand-over that reads as a
+          # plain deploy reports success over a rollout another task is still performing.
+          check() {
+            local label="$1" doc="$2" want="$3" got
+            got=$(task_status "$doc")
+            [ "$got" = "$want" ] || { echo "::error::$label: expected '$want', got '$got'"; exit 1; }
+          }
+          check "a superseded task"        '{"status":"superseded"}'              "superseded"
+          check "a completed task"         '{"status":"completed","x":1}'         "completed"
+          check "a document with no status" '{"deployment":"pr123"}'              ""
+          check "a bare string"            '"superseded"'                         ""
+          check "an array"                 '[{"status":"superseded"}]'            ""
+          check "an empty document"        '{}'                                   ""
+          check "output that is not JSON"  'zadctl: command not found'            ""
+          check "nothing at all"           ''                                     ""
+
+  deploy-log:
+    name: deploy-log
+    runs-on: ubuntu-latest
+    # What the deploy step SAYS: the waiting count, the `zad project refresh` hint and the
+    # cause of a count that could not be read are annotations, and no later step can read
+    # the log it runs inside. So the step's script is extracted and run with output captured.
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Put the stubs on PATH
+        run: |
+          chmod +x tests/stubs/*
+          echo "$PWD/tests/stubs" >> "$GITHUB_PATH"
+
+      - name: Take the deploy step's script out of the action
+        run: |
+          awk '
+            /^    - name: Deploy to ZAD$/ { instep = 1 }
+            instep && /^      run: \|$/ { inrun = 1; next }
+            inrun && /^    - name: / { exit }
+            inrun { sub(/^        /, ""); print }
+          ' deploy/action.yml > "$RUNNER_TEMP/deploy-step.sh"
+
+          # An extraction that silently came back empty, or that stopped halfway, would
+          # make every case below pass for the wrong reason.
+          bash -n "$RUNNER_TEMP/deploy-step.sh" || { echo "::error::the extracted step is not valid bash"; exit 1; }
+          # One anchor from the head, one from the middle and one from the tail, so an
+          # extraction that stopped early is caught as well as one that came back empty.
+          # They are not the lines the cases below assert on: this is about whether the
+          # whole step was extracted, not about what it says.
+          for ANCHOR in 'validate_input' 'resolve_task_handover' 'zad deployment url'; do
+            grep -qF "$ANCHOR" "$RUNNER_TEMP/deploy-step.sh" || {
+              echo "::error::the extracted step does not contain '$ANCHOR'; has the step moved or been renamed?"
+              exit 1
+            }
+          done
+
+          # The action's `env:` block, written out once. The ZAD_STUB_* answers come from
+          # the calling step's `env:`, not GITHUB_ENV, which would leak into later cases.
+          # A second copy of those names, so a rename is caught by the step's own validation.
+          cat > "$RUNNER_TEMP/run-deploy-step.sh" <<'SH'
+          #!/usr/bin/env bash
+          # Usage: run-deploy-step.sh <case-name>; prints the step's whole output, exits
+          # with the step's exit code. The case name keeps the stub's call counter, its
+          # argv log and the step's GITHUB_OUTPUT from carrying between cases.
+          set -u
+          CASE="$1"
+          export GITHUB_ACTION_PATH="$GITHUB_WORKSPACE/deploy"
+          export GITHUB_OUTPUT="$RUNNER_TEMP/$CASE.out"
+          export ZAD_STUB_STATE="$RUNNER_TEMP/$CASE.calls"
+          export ZAD_STUB_LOG="$RUNNER_TEMP/$CASE.log"
+          : > "$GITHUB_OUTPUT"
+          export ZAD_API_KEY="stub" ZAD_API_URL="https://zad.example/api" ZAD_PROJECT_ID="testproject"
+          export ZAD_MAX_RETRIES="3" ZAD_RETRY_DELAY="2" ZAD_TASK_TIMEOUT="300" ZAD_TASK_POLL_INTERVAL="3"
+          export DEPLOYMENT_NAME="pr123" COMPONENT="web" IMAGE="ghcr.io/o/web:pr-123"
+          export COMPONENTS="" CLONE_FROM="" FORCE_CLONE="false"
+          export PATH_SUFFIX="" DOMAIN_FORMAT="" SUBDOMAIN="" BASE_DOMAIN="" NO_COLOR="1"
+          exec bash --noprofile --norc -e -o pipefail "$RUNNER_TEMP/deploy-step.sh" 2>&1
+          SH
+          chmod +x "$RUNNER_TEMP/run-deploy-step.sh"
+
+      - name: Changes that are only saved say how many there are and what to do about them
+        env:
+          ZAD_STUB_CREATE: '{"status":"superseded","superseded_by":{"task_id":"task-ppp","task_type":"configure_service"}}'
+          ZAD_STUB_TASK_WAIT: '{"status":"completed","pending_rollout":{"count":2}}'
+          ZAD_STUB_URLS: '{"web":"https://web.example"}'
+        run: |
+          OUT=$("$RUNNER_TEMP/run-deploy-step.sh" refresh-hint) && RC=0 || RC=$?
+          printf '%s\n' "$OUT"
+
+          [ "$RC" -ne 0 ] || { echo "::error::a deploy over a change that is only saved must fail"; exit 1; }
+          # The count, so a reader does not have to go and count them, and the command,
+          # so the next step does not have to be guessed at.
+          printf '%s\n' "$OUT" | grep -q '^::error::After the hand-over, 2 change(s) are saved but not rolled out\.' || {
+            echo "::error::the failure does not say how many changes are waiting"
+            exit 1
+          }
+          printf '%s\n' "$OUT" | grep -q '^::error::Roll them out with: zad project refresh' || {
+            echo "::error::the failure does not say how to roll the changes out"
+            exit 1
+          }
+          # The behaviour behind 'a success claim must not precede an error': on this path
+          # the claim must not be in the log at all.
+          if printf '%s\n' "$OUT" | grep -q 'Deployment successful'; then
+            echo "::error::the step claimed success over a change that is still waiting"
+            exit 1
+          fi
+          printf '%s\n' "$OUT" | grep -q '^Deployment task accepted$' || {
+            echo "::error::the one claim that was true at that point is missing"
+            exit 1
+          }
+
+      - name: A count that is not a number is not a count
+        env:
+          ZAD_STUB_CREATE: '{"status":"superseded","superseded_by":{"task_id":"task-rrr","task_type":"configure_service"}}'
+          # A number is what the field is for, so this is the shape nobody planned for.
+          ZAD_STUB_TASK_WAIT: '{"status":"completed","pending_rollout":{"count":"lots"}}'
+          ZAD_STUB_PENDING: '{"count":0}'
+          ZAD_STUB_URLS: '{"web":"https://web.example"}'
+        run: |
+          OUT=$("$RUNNER_TEMP/run-deploy-step.sh" count-not-a-number) && RC=0 || RC=$?
+          printf '%s\n' "$OUT"
+
+          # The same rule as a count that could not be read at all: one this action cannot
+          # make sense of is not a reason to fail a deploy that otherwise succeeded. Passed
+          # on regardless, the failure would have read 'lots change(s) are waiting'.
+          [ "$RC" -eq 0 ] || { echo "::error::a count that is not a number must not fail a deploy, rc=$RC"; exit 1; }
+          if printf '%s\n' "$OUT" | grep -q 'saved but not rolled out'; then
+            echo "::error::a count that is not a number was reported as changes waiting"
+            exit 1
+          fi
+          printf '%s\n' "$OUT" | grep -q '^Deployment successful$' || { echo "::error::the deploy did not finish"; exit 1; }
+
+      - name: A count that could not be read says why, and the deploy still succeeds
+        env:
+          ZAD_STUB_CREATE: '{"status":"superseded","superseded_by":{"task_id":"task-qqq","task_type":"configure_service"}}'
+          ZAD_STUB_TASK_WAIT: '{"status":"completed"}'
+          # The CLI's diagnosis: a key without the right to list a project's pending
+          # changes. Without the cause in the warning a reader cannot tell this apart from
+          # an incident -- and in this case the check is dead in their project, so 'saved
+          # but not rolled out' is a green deploy again.
+          ZAD_STUB_PENDING: '{"status_code":403,"headline":"Not allowed to list pending changes."}'
+          ZAD_STUB_PENDING_EXIT: '1'
+          ZAD_STUB_URLS: '{"web":"https://web.example"}'
+        run: |
+          OUT=$("$RUNNER_TEMP/run-deploy-step.sh" unreadable-count) && RC=0 || RC=$?
+          printf '%s\n' "$OUT"
+
+          [ "$RC" -eq 0 ] || { echo "::error::a count that cannot be read must not fail a deploy, rc=$RC"; exit 1; }
+          WARN='^::warning::Could not read how many changes are waiting to be rolled out'
+          WARN="$WARN"' (Not allowed to list pending changes\.)$'
+          printf '%s\n' "$OUT" | grep -q "$WARN" || {
+            echo "::error::the warning does not name the cause it had in hand"
+            exit 1
+          }
+          # Best effort: a warning, and not an error on a step that ends green.
+          if printf '%s\n' "$OUT" | grep -q '^::error::'; then
+            echo "::error::a deploy that succeeded raised an error anyway"
+            exit 1
+          fi
+          # Both claims, in the order the plan asks for: the honest one when the task came
+          # back, the success one only once the addresses are in hand.
+          ACCEPTED=$(printf '%s\n' "$OUT" | grep -n '^Deployment task accepted$' | cut -d: -f1)
+          SUCCESS=$(printf '%s\n' "$OUT" | grep -n '^Deployment successful$' | cut -d: -f1)
+          if [ -z "$ACCEPTED" ] || [ -z "$SUCCESS" ]; then
+            echo "::error::expected both claims, got '$ACCEPTED' and '$SUCCESS'"
+            exit 1
+          fi
+          [ "$ACCEPTED" -lt "$SUCCESS" ] || { echo "::error::the success claim came first"; exit 1; }

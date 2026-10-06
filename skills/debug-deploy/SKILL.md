@@ -54,6 +54,20 @@ All three actions retry transient ZAD API errors (000, 429, 500-504) with expone
 | `429` | Rate limited | Yes | Automatically retried. Increase `retry-delay` if persistent |
 | `5xx` | ZAD API server error | Yes | Automatically retried. If persistent after retries, check ZAD Operations Manager status |
 
+### Deployment hand-over (deploy)
+
+A deployment task is superseded when a newer task covers its deployment scope: the same deployment deployed again, or a project-wide task such as a service or component change. It then *completes* with `status: superseded`, and the deploy step follows the reference to the task that took over, up to ten hand-overs in a row, before it reports anything. Two deploys of different deployments never supersede each other.
+
+| Symptom | Diagnosis | Fix |
+|---------|-----------|-----|
+| `::notice::Deployment was handed over to task <id>` and the step still succeeds | Expected — another task took the rollout over and this step waited for that task to finish | None. Add a `concurrency` group to the workflow if you would rather deploys to one project did not overlap |
+| `Deployment: task <id>, which took over, ended 'failed'` (or `'cancelled'`) | The task that took the rollout over never finished it, so the new image is not serving | Inspect that task id in Operations Manager and re-run the deploy. The `::error::` lines under it carry the CLI's diagnosis when the task result has one |
+| `After the hand-over, N change(s) are saved but not rolled out.` | The task that took over saved its change to the project file without rolling it out, so the deployment's addresses are what the project asks for and not what is serving | Run `zad project refresh` for the project, then re-run the deploy |
+| `Deployment: waiting for task <id>, which took over, failed` / `returned no usable JSON` | The wait on the taking-over task itself failed — timeout, auth, or an answer that is not JSON | Check the `::error::` lines under it for the cause. Raise `task-timeout` when the taking-over task legitimately needs longer |
+| `Deployment was handed over 10 times without reaching a final task` | Tasks keep starting in the project, so the chain never reaches one that finishes | Stop the overlapping deploys (add a `concurrency` group) and inspect the project's tasks with `zad task list` |
+| `Deployment was superseded but the result does not name the task that took over` / `the task that took over has an unusable task id` | There is nothing to wait for, so the rollout cannot be reported as finished | Re-run the deploy once the project is quiet. Report it if it repeats — the reference comes from the API |
+| `::warning::Could not read how many changes are waiting to be rolled out` | `zad project pending` did not answer. The cause is in brackets when the CLI gave one; the one worth ruling out is an API key that lacks the right to list the project's pending changes | One-off: none, the step's own verdict stands. Persistent: check the key's access, otherwise a change that is saved but not rolled out stays unnoticed |
+
 ### Deployment readiness errors (wait-for-ready)
 
 | Symptom | Diagnosis | Fix |

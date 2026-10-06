@@ -307,7 +307,45 @@ runs:
           exit 1
         fi
 
-        echo "Deployment successful"
+        echo "Deployment task accepted"
+
+        # The addresses below come from the project file, so resolve a hand-over before
+        # anything reads one. See resolve_task_handover in scripts/zad-common.sh.
+        HANDED_OVER=false
+        if [ "$(task_status "$RESULT")" = "superseded" ]; then
+          HANDED_OVER=true
+        fi
+        RESULT=$(resolve_task_handover "$RESULT" "Deployment") || exit 1
+
+        # The count is project-wide and can name a change this deploy never made, so it is
+        # only asked after a hand-over put another task in charge of this rollout.
+        if [ "$HANDED_OVER" = "true" ]; then
+          # `?`: `type == "object"` answers for the document, not for `.pending_rollout`.
+          WAITING=$(echo "$RESULT" | jq -r 'if type == "object" then (.pending_rollout.count? // empty) else empty end')
+          if [ -z "$WAITING" ]; then
+            # v0.12.0 keeps `pending_rollout` off stdout, so ask for it. Best effort: a
+            # count that cannot be read must not fail a deployment that succeeded.
+            if PENDING=$(zad --output json project pending 2>/dev/null) &&
+               echo "$PENDING" | jq empty 2>/dev/null; then
+              WAITING=$(echo "$PENDING" | jq -r 'if type == "object" then (.count // 0) else 0 end')
+            else
+              # Name the cause, or a key that lacks the right to list pending changes is
+              # indistinguishable from an incident. Not report_zad_error: this step ends green.
+              HINT=$(echo "$PENDING" | jq -r 'if type == "object" then (.headline // .error // empty) else empty end' 2>/dev/null || echo "")
+              echo "::warning::Could not read how many changes are waiting to be rolled out${HINT:+ (${HINT})}"
+              WAITING=0
+            fi
+          fi
+          case "$WAITING" in
+            "" | 0 | *[!0-9]*) ;;
+            *)
+              echo "::error::After the hand-over, ${WAITING} change(s) are saved but not rolled out."
+              echo "::error::The deployment's addresses are what the project file asks for, not what is serving."
+              echo "::error::Roll them out with: zad project refresh"
+              exit 1
+              ;;
+          esac
+        fi
 
         # Ask the CLI where things are, rather than reading the shape of a task result.
         # This used to dig into .urls.<deployment>.urls.<component> of the deploy's raw
@@ -374,6 +412,9 @@ runs:
           echo "url=$URL" >> "$GITHUB_OUTPUT"
           echo "Deployed to: $URL"
         fi
+
+        # Last, so it never precedes an error: everything above can still fail the step.
+        echo "Deployment successful"
 
     - name: Wait for deployment to be ready
       if: steps.bot-check.outputs.skipped != 'true' && inputs.wait-for-ready == 'true'

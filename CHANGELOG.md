@@ -7,13 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Changed
-- The five skills no longer pin `model: sonnet`. A pinned model overrides the choice of whoever runs the skill, which is wrong for reference content: these skills describe ZAD deployment, linting and releases, they are not an agent loop with a cost or latency profile worth constraining. Nothing measured that sonnet was sufficient here, and a hardcoded model name is five places to edit when the naming changes, with nothing to signal that it went stale. The six plugins in the developer.overheid.nl marketplace dropped theirs for the same reason
-
 ## [4.3.1] - 2026-10-07
 
 ### Changed
 - The plugin and the actions share one version line. `.plugin/plugin.json` had stood at 1.2.0 since February while the actions moved through four minors to 4.3.0, so the marketplace installed a plugin that claimed a version from before seven commits and 597 lines of skill changes. The plugin version is now the tag version, which makes the marketplace follow a release of either without anyone remembering a second number
+- The five skills no longer pin `model: sonnet`. A pinned model overrides the choice of whoever runs the skill, which is wrong for reference content: these skills describe ZAD deployment, linting and releases, they are not an agent loop with a cost or latency profile worth constraining. Nothing measured that sonnet was sufficient here, and a hardcoded model name is five places to edit when the naming changes, with nothing to signal that it went stale. The six plugins in the developer.overheid.nl marketplace dropped theirs for the same reason
 
 ### Internal
 - `scripts/bump_version.py` sets the version in `.plugin/plugin.json` and regenerates the two platform manifests, so the three cannot drift apart by hand

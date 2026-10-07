@@ -1,9 +1,6 @@
 ---
 name: generate-workflow
-description: >-
-  Genereer een GitHub Actions workflow voor een repo die zad-actions
-  deploy/cleanup gebruikt. Gebruik bij 'workflow genereren', 'hoe gebruik ik
-  zad-actions', 'setup zad', 'integratie', 'voorbeeld workflow'.
+description: "Genereer een GitHub Actions workflow voor een repo die zad-actions deploy/cleanup gebruikt. Gebruik bij 'workflow genereren', 'setup zad', 'integratie', 'voorbeeld workflow'."
 model: sonnet
 allowed-tools:
   - Read(*)

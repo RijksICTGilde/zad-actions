@@ -1,9 +1,6 @@
 ---
 name: debug-deploy
-description: >-
-  Diagnose falende ZAD deployments of cleanup actions. Gebruik bij 'deployment
-  faalt', 'error', 'deploy werkt niet', 'cleanup faalt', 'HTTP error', '401',
-  '403', '404'.
+description: "Diagnose falende ZAD deployments of cleanup actions. Gebruik bij 'deployment faalt', 'error', 'deploy werkt niet', 'cleanup faalt', 'HTTP error', '401', '403', '404'."
 model: sonnet
 allowed-tools:
   - Read(*)

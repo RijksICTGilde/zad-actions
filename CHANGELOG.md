@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- The five skills no longer pin `model: sonnet`. A pinned model overrides the choice of whoever runs the skill, which is wrong for reference content: these skills describe ZAD deployment, linting and releases, they are not an agent loop with a cost or latency profile worth constraining. Nothing measured that sonnet was sufficient here, and a hardcoded model name is five places to edit when the naming changes, with nothing to signal that it went stale. The six plugins in the developer.overheid.nl marketplace dropped theirs for the same reason
+
 ## [4.3.1] - 2026-10-07
 
 ### Changed

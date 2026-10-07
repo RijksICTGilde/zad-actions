@@ -1,7 +1,6 @@
 ---
 name: lint
 description: "Run pre-commit linting voor ZAD Actions. Gebruik bij vragen over 'lint', 'pre-commit', 'code quality', 'formatting', 'linting'."
-model: sonnet
 allowed-tools:
   - Bash(pre-commit *)
   - Bash(uv tool install *)

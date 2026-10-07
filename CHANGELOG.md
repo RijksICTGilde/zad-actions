@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.3.0] - 2026-10-07
+
 ### Upgrading
 A `deploy` step can now fail where it used to pass, in two cases, both of which were a green step over a rollout that had not happened:
 
@@ -29,6 +31,7 @@ Nothing is renamed or removed, and a deploy that is not superseded takes exactly
 - A `deploy-log` smoke job runs the deploy step's own script with its output captured, because the lines it is judged on are annotations in the job log and no later step can read the log it is running inside. It pins what the waiting count makes the step *say* and not only what it makes the step do: the count itself and `zad project refresh` in the failure, the cause of a count that could not be read in the warning, and a count that is not a number failing nothing rather than being reported as that many changes waiting. The step's script is extracted from `deploy/action.yml` by name, and the extraction is checked against anchors from its head, middle and tail so it cannot silently come back empty or half
 - `deploy`: when the waiting count cannot be read at all, the warning names the cause. The CLI's diagnosis is the document on stdout and its stderr is dropped on that call, so the bare warning left a reader unable to tell a one-off incident from an API key that structurally lacks the right to list pending changes — and in that second case this check is dead in that project, which makes "saved but not rolled out" a green deploy again
 - The `debug-deploy` skill answers the hand-over failures: a successor that ended `failed` or `cancelled`, changes saved but not rolled out, the hop cap, a hand-over that names no successor, and the warning over a waiting count that could not be read. The skill is where a reader takes an `::error::` line from a deploy log, and these lines had no entry. `deploy/README.md` also says that each wait is bounded by `task-timeout` on its own, so a chain of hand-overs can outlast a single task's timeout
+- The five skill descriptions are one quoted line each instead of a YAML block scalar. The text is unchanged, but `grep ^description:` and any tool that reads the first line saw `>-` and an empty value, which is how a review of the descriptions across the marketplace plugins concluded these skills had none. `generate-workflow` also lost the trigger `'hoe gebruik ik zad-actions'`, which `'setup zad'` and `'integratie'` already cover, bringing every description under 200 characters
 
 ## [4.2.0] - 2026-09-11
 

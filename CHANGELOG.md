@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.3.1] - 2026-10-07
+
+### Changed
+- The plugin and the actions share one version line. `.plugin/plugin.json` had stood at 1.2.0 since February while the actions moved through four minors to 4.3.0, so the marketplace installed a plugin that claimed a version from before seven commits and 597 lines of skill changes. The plugin version is now the tag version, which makes the marketplace follow a release of either without anyone remembering a second number
+
+### Internal
+- `scripts/bump_version.py` sets the version in `.plugin/plugin.json` and regenerates the two platform manifests, so the three cannot drift apart by hand
+- The release workflow refuses a tag whose version does not match `.plugin/plugin.json`, and names the helper in the error. A forgotten bump now fails the release before it publishes, instead of shipping a plugin that claims an older version — which is how the 1.2.0 gap went unnoticed for six months. The check runs before the release is created, so the existing rollback step takes the tag back down
+
 ## [4.3.0] - 2026-10-07
 
 ### Upgrading

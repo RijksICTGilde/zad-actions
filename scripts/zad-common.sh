@@ -207,3 +207,110 @@ zad_delete_deployment() {
     report_zad_error "Delete '$deployment_name'" "$result" "${ZAD_PROJECT_ID:-unknown}"
   fi
 }
+
+# The `status` of a task result document, or empty when there is none. The type is checked
+# because `jq .status` on a bare string is an error, not an empty answer.
+task_status() {
+  echo "$1" | jq -r 'if type == "object" then (.status // empty) else empty end' 2>/dev/null || echo ""
+}
+
+# Follow a task hand-over to the task that actually finished the work.
+#
+# A newer task whose deployment scope covers this one's takes its remaining ArgoCD wait
+# over. The waiting task ends as *completed* with `result.status: superseded`, and zad-cli
+# exits 0 on that, so a caller checking only the exit code calls a hand-over a finished
+# rollout. See deploy/README.md for when one arises.
+#
+# Usage: FINAL=$(resolve_task_handover "$RESULT" "Deployment") || exit 1
+#
+# The final task result goes to stdout and everything a reader sees to stderr, so the
+# caller can capture the document with $(...). A result that is not superseded is echoed
+# back unchanged. Returns non-zero when the chain ended 'failed' or 'cancelled', when the
+# hop cap is reached, or when `task wait` failed. Each wait is bounded by
+# ZAD_TASK_TIMEOUT; the hop cap bounds how many of them there can be.
+resolve_task_handover() {
+  local result="$1" operation="$2"
+  local hops=0 max_hops=10 task_id task_type status last_task_id="" wait_exit
+
+  # Not this helper's business to diagnose: the caller already accepted the document.
+  if ! echo "$result" | jq empty 2>/dev/null; then
+    printf '%s\n' "$result"
+    return 0
+  fi
+
+  while [ "$(task_status "$result")" = "superseded" ]; do
+    hops=$((hops + 1))
+    if [ "$hops" -gt "$max_hops" ]; then
+      echo "::error::${operation} was handed over ${max_hops} times without reaching a final task" >&2
+      echo "::error::Giving up rather than following the chain further; inspect the project's tasks with 'zad task list'" >&2
+      printf '%s\n' "$result"
+      return 1
+    fi
+
+    task_id=$(echo "$result" | jq -r 'if type == "object" then (.superseded_by.task_id? // empty) else empty end')
+    task_type=$(echo "$result" | jq -r 'if type == "object" then (.superseded_by.task_type? // empty) else empty end')
+    if [ -z "$task_id" ]; then
+      echo "::error::${operation} was superseded but the result does not name the task that took over" >&2
+      echo "::error::Nothing can be waited for, so this rollout cannot be reported as finished" >&2
+      printf '%s\n' "$result"
+      return 1
+    fi
+    # Checked before they are logged. A shell pattern over the whole value, not grep,
+    # which matches line by line and would accept "t-2\n::error::forged".
+    case "$task_id" in
+      "" | *[!a-zA-Z0-9._-]*)
+        echo "::error::${operation}: the task that took over has an unusable task id" >&2
+        printf '%s\n' "$result"
+        return 1
+        ;;
+    esac
+    case "$task_type" in
+      *[!a-zA-Z0-9._-]*) task_type="" ;;
+    esac
+
+    # A notice, not a warning: the CLI documents `status: superseded` as a success and
+    # --strict does not fail a build over it, so this action must not contradict that.
+    echo "::notice::${operation} was handed over to task ${task_id} (${task_type:-unknown task type}); waiting for it to finish" >&2
+
+    result=$(zad --output json task wait "$task_id") && wait_exit=0 || wait_exit=$?
+    last_task_id="$task_id"
+    if [ "$wait_exit" -ne 0 ]; then
+      echo "::error::${operation}: waiting for task ${task_id}, which took over, failed" >&2
+      report_zad_error "${operation} hand-over to task ${task_id}" "$result" "${ZAD_PROJECT_ID:-unknown}" >&2
+      printf '%s\n' "$result"
+      return 1
+    fi
+    if ! echo "$result" | jq empty 2>/dev/null; then
+      echo "::error::${operation}: waiting for task ${task_id} returned no usable JSON" >&2
+      echo "::error::CLI output: $result" >&2
+      printf '%s\n' "$result"
+      return 1
+    fi
+  done
+
+  status=$(task_status "$result")
+  case "$status" in
+    failed | cancelled | canceled)
+      echo "::error::${operation}: ${last_task_id:+task ${last_task_id}, which took over, }ended '${status}'" >&2
+      # report_zad_error reads a diagnosis document; a result that merely says `failed` is
+      # not one, and it answers with "no HTTP status code" under a line that said the cause.
+      if [ -n "$(echo "$result" | jq -r 'if type == "object" then (.status_code // .headline // .error // empty) else empty end')" ]; then
+        report_zad_error "${operation}${last_task_id:+ (task ${last_task_id})}" "$result" "${ZAD_PROJECT_ID:-unknown}" >&2
+      else
+        # `message` is plausible, not promised, so one reading and no list of guesses.
+        # Absent it nothing is lost: the ::error:: above named the task and its state.
+        local message
+        message=$(echo "$result" | jq -r 'if type == "object" then (.message // empty) else empty end')
+        [ -n "$message" ] && echo "::error::${operation}: $message" >&2
+      fi
+      printf '%s\n' "$result"
+      return 1
+      ;;
+  esac
+
+  if [ -n "$last_task_id" ]; then
+    echo "::notice::${operation} completed in task ${last_task_id} after ${hops} hand-over(s)" >&2
+  fi
+  printf '%s\n' "$result"
+  return 0
+}

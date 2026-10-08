@@ -1,10 +1,6 @@
 ---
 name: validate-action
-description: >-
-  Valideer GitHub Actions action.yml bestanden voor ZAD. Gebruik bij vragen over
-  'validate action', 'action.yml', 'valideer actie', 'GitHub Action controleren',
-  'inputs outputs check'.
-model: sonnet
+description: "Valideer GitHub Actions action.yml bestanden voor ZAD. Gebruik bij vragen over 'validate action', 'action.yml', 'valideer actie', 'GitHub Action controleren', 'inputs outputs check'."
 allowed-tools:
   - Read(*)
   - Grep(*)

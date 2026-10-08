@@ -27,6 +27,19 @@ jobs:
             echo "major=$MAJOR"
           } >> "$GITHUB_OUTPUT"
 
+      - name: Verify plugin version matches the tag
+        run: |
+          VERSION=${{ steps.version.outputs.version }}
+          PLUGIN=$(python3 -c "import json; print(json.load(open('.plugin/plugin.json'))['version'])")
+          if [ "$PLUGIN" != "$VERSION" ]; then
+            echo "::error::.plugin/plugin.json says $PLUGIN but the tag says $VERSION"
+            echo "::error::The plugin and the actions share one version line. Run:"
+            echo "::error::  python3 scripts/bump_version.py $VERSION"
+            exit 1
+          fi
+          python3 scripts/generate_plugin.py --check
+          echo "Plugin version $PLUGIN matches the tag"
+
       - name: Verify CHANGELOG entry exists
         run: |
           VERSION=${{ steps.version.outputs.version }}

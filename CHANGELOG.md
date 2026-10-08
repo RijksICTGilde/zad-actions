@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Dependabot also scans `deploy/`, `cleanup/` and `scheduled-cleanup/`. With only `/` it read `.github/workflows` and a root `action.yml`, so the actions the composite actions pull in (such as `astral-sh/setup-uv`) never got an update
 - yamllint runs with `--strict` from a shared `.yamllint.yaml`, in pre-commit and CI alike; CI now lints every YAML file instead of a hand-picked list that missed `scheduled-cleanup`. `.editorconfig` sets the same 150-column limit for YAML
 - The pre-commit.ci settings moved into `.pre-commit-config.yaml`: pre-commit.ci only reads the `ci:` key there, so `.pre-commit-ci.yaml` was ignored
+- The smoke tests pass `skip-bot-prs: 'false'` to every action call. On its default the actions skip themselves when the PR author is a bot, so every assertion read an empty output and the suite went red on a Dependabot PR while testing nothing. Now that Dependabot scans the composite actions, that is every bump it opens. A `bot-check` job holds the skip logic itself, against the step's own script: a PR author cannot be faked in a workflow event, so it is extracted the way `deploy-log` extracts the deploy step
 
 ## [4.3.1] - 2026-10-07
 

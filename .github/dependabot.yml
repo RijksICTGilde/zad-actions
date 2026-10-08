@@ -24,7 +24,11 @@ version: 2
 # delayed by this.
 updates:
   - package-ecosystem: "github-actions"
-    directory: "/"
+    directories:
+      - "/"
+      - "/deploy"
+      - "/cleanup"
+      - "/scheduled-cleanup"
     schedule:
       interval: "weekly"
     cooldown:

@@ -5,6 +5,11 @@ name: Smoke Tests
 # shell logic but in what the runner did with it -- an output value spanning
 # multiple lines makes the runner reject GITHUB_OUTPUT entirely. A harness that
 # executed the same bash in a subshell would call that a pass.
+#
+# Every call passes skip-bot-prs: 'false'. On its default the actions skip themselves
+# whenever the PR author is a bot, which makes every assertion below read an empty
+# output and fail -- so on a Dependabot PR this suite tested nothing and said so with a
+# red X. The bot-check itself is covered in the bot-check job, against its own script.
 
 on:
   push:
@@ -56,6 +61,7 @@ jobs:
         uses: ./deploy
         with:
           api-key: stub
+          skip-bot-prs: 'false'
           project-id: testproject
           deployment-name: pr123
           components: '[{"name":"web","image":"ghcr.io/o/web:pr-123"},{"name":"api","image":"ghcr.io/o/api:pr-123"}]'
@@ -86,6 +92,7 @@ jobs:
         uses: ./deploy
         with:
           api-key: stub
+          skip-bot-prs: 'false'
           project-id: testproject
           deployment-name: pr123
           components: '[{"name":"web","image":"ghcr.io/o/web:pr-123"},{"name":"api","image":"ghcr.io/o/api:pr-123"}]'
@@ -120,6 +127,7 @@ jobs:
         uses: ./deploy
         with:
           api-key: stub
+          skip-bot-prs: 'false'
           project-id: testproject
           deployment-name: pr123
           components: '[{"name":"web","image":"ghcr.io/o/web:pr-123"},{"name":"api","image":"ghcr.io/o/api:pr-123"}]'
@@ -157,6 +165,7 @@ jobs:
         uses: ./deploy
         with:
           api-key: stub
+          skip-bot-prs: 'false'
           project-id: testproject
           deployment-name: pr123
           component: web
@@ -198,6 +207,7 @@ jobs:
         uses: ./deploy
         with:
           api-key: stub
+          skip-bot-prs: 'false'
           project-id: testproject
           deployment-name: pr123
           component: web
@@ -242,6 +252,7 @@ jobs:
         uses: ./deploy
         with:
           api-key: stub
+          skip-bot-prs: 'false'
           project-id: testproject
           deployment-name: pr123
           component: web
@@ -277,6 +288,7 @@ jobs:
         uses: ./deploy
         with:
           api-key: stub
+          skip-bot-prs: 'false'
           project-id: testproject
           deployment-name: pr123
           component: web
@@ -311,6 +323,7 @@ jobs:
         uses: ./deploy
         with:
           api-key: stub
+          skip-bot-prs: 'false'
           project-id: testproject
           deployment-name: pr123
           component: web
@@ -349,6 +362,7 @@ jobs:
         uses: ./deploy
         with:
           api-key: stub
+          skip-bot-prs: 'false'
           project-id: testproject
           deployment-name: pr123
           component: web
@@ -389,6 +403,7 @@ jobs:
         uses: ./deploy
         with:
           api-key: stub
+          skip-bot-prs: 'false'
           project-id: testproject
           deployment-name: pr123
           component: web
@@ -429,6 +444,7 @@ jobs:
         uses: ./deploy
         with:
           api-key: stub
+          skip-bot-prs: 'false'
           project-id: testproject
           deployment-name: pr123
           component: web
@@ -468,6 +484,7 @@ jobs:
         uses: ./deploy
         with:
           api-key: stub
+          skip-bot-prs: 'false'
           project-id: testproject
           deployment-name: pr123
           component: web
@@ -510,6 +527,7 @@ jobs:
         uses: ./deploy
         with:
           api-key: stub
+          skip-bot-prs: 'false'
           project-id: testproject
           deployment-name: pr123
           component: web
@@ -550,6 +568,7 @@ jobs:
         uses: ./deploy
         with:
           api-key: stub
+          skip-bot-prs: 'false'
           project-id: testproject
           deployment-name: pr123
           component: web
@@ -586,6 +605,7 @@ jobs:
         uses: ./deploy
         with:
           api-key: stub
+          skip-bot-prs: 'false'
           project-id: testproject
           deployment-name: pr123
           component: web
@@ -623,6 +643,7 @@ jobs:
         uses: ./deploy
         with:
           api-key: stub
+          skip-bot-prs: 'false'
           project-id: testproject
           deployment-name: pr123
           component: web
@@ -664,6 +685,7 @@ jobs:
         uses: ./deploy
         with:
           api-key: stub
+          skip-bot-prs: 'false'
           project-id: testproject
           deployment-name: pr123
           component: web
@@ -697,6 +719,7 @@ jobs:
         uses: ./cleanup
         with:
           api-key: stub
+          skip-bot-prs: 'false'
           project-id: testproject
           deployment-name: pr123
           github-admin-token: stub-admin
@@ -1137,3 +1160,65 @@ jobs:
             exit 1
           fi
           [ "$ACCEPTED" -lt "$SUCCESS" ] || { echo "::error::the success claim came first"; exit 1; }
+
+  bot-check:
+    name: bot-check
+    runs-on: ubuntu-latest
+    # The rest of this file turns the bot check off, so its logic is held here instead,
+    # against the step's own script. A PR author cannot be faked in a workflow event, so
+    # the script is extracted the way deploy-log extracts the deploy step.
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Take the bot check out of the action
+        run: |
+          awk '
+            /^    - name: / { instep = ($0 == "    - name: Check for bot PR") }
+            instep && /^      run: \|$/ { inrun = 1; next }
+            inrun && /^    - name: / { exit }
+            inrun { sub(/^        /, ""); print }
+          ' deploy/action.yml > "$RUNNER_TEMP/bot-check.sh"
+
+          bash -n "$RUNNER_TEMP/bot-check.sh" || {
+            echo "::error::the extracted bot check is not valid bash"
+            exit 1
+          }
+          for ANCHOR in 'KNOWN_BOTS' 'PR_AUTHOR_TYPE' 'skipped=false'; do
+            grep -qF "$ANCHOR" "$RUNNER_TEMP/bot-check.sh" || {
+              echo "::error::the extracted check does not contain '$ANCHOR'; has the step moved?"
+              exit 1
+            }
+          done
+
+          cat > "$RUNNER_TEMP/run-bot-check.sh" <<'SH'
+          #!/usr/bin/env bash
+          # Usage: run-bot-check.sh <login> <type>; prints the step's skipped= output.
+          set -u
+          export PR_AUTHOR="$1" PR_AUTHOR_TYPE="$2"
+          export GITHUB_OUTPUT="$RUNNER_TEMP/bot-out.txt"
+          : > "$GITHUB_OUTPUT"
+          bash "$RUNNER_TEMP/bot-check.sh" >/dev/null
+          grep '^skipped=' "$GITHUB_OUTPUT" | tail -n1
+          SH
+          chmod +x "$RUNNER_TEMP/run-bot-check.sh"
+
+      - name: An author the API calls a Bot is skipped
+        run: |
+          OUT=$("$RUNNER_TEMP/run-bot-check.sh" 'some-app[bot]' 'Bot')
+          [ "$OUT" = "skipped=true" ] || { echo "::error::expected skipped=true, got '$OUT'"; exit 1; }
+
+      - name: A known bot login is skipped even when the type says User
+        # The type is what the event happens to carry; the list is what we know.
+        run: |
+          for LOGIN in 'dependabot[bot]' 'renovate[bot]' 'pre-commit-ci[bot]' 'github-actions[bot]'; do
+            OUT=$("$RUNNER_TEMP/run-bot-check.sh" "$LOGIN" 'User')
+            [ "$OUT" = "skipped=true" ] || {
+              echo "::error::$LOGIN should be skipped, got '$OUT'"
+              exit 1
+            }
+          done
+
+      - name: A person is not skipped
+        run: |
+          OUT=$("$RUNNER_TEMP/run-bot-check.sh" 'octocat' 'User')
+          [ "$OUT" = "skipped=false" ] || { echo "::error::expected skipped=false, got '$OUT'"; exit 1; }

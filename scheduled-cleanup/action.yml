@@ -252,6 +252,9 @@ runs:
     - name: Setup uv
       if: steps.find-stale.outputs.stale-count != '0'
       uses: astral-sh/setup-uv@v6
+      with:
+        version: "0.12.17"
+        enable-cache: "false"
 
     - name: Install zad-cli
       if: steps.find-stale.outputs.stale-count != '0'

@@ -376,6 +376,24 @@ Backoff is exponential: 2s → 4s → 8s (default). Set `max-retries: '0'` to di
 1. Constructs a JSON payload with deployment configuration
 2. Calls the ZAD Operations Manager V2 async API to submit the deployment task (with retry on transient errors)
 3. Polls the task status until completion or timeout
-4. Returns the constructed URL as an output
+4. Follows a hand-over, if there was one (see below)
+5. Asks the CLI for the deployment's addresses and publishes them as `url` and `urls`
+
+A newer task takes this one's remaining work over when its deployment scope covers this
+one's: a second deploy of the same deployment, or a project-wide task such as a service
+or component change. Deploys of different deployments have disjoint scopes and run in
+parallel, so they never hand each other's work over. Only the wait on ArgoCD is given up;
+the project file is already committed, which is why the waiting task *completes* with
+`status: superseded` and a reference to the task that took over. As far as the API and the
+CLI are concerned that is a success, and it is not yet a finished rollout. The
+action follows the reference and waits (up to ten hand-overs in a row), so the step reports
+one verdict: success with the deployment's addresses, or a failure naming the task that
+ended `failed` or `cancelled`. The hand-over itself is logged as a notice. Each wait is
+bounded by `task-timeout` on its own, so a deploy that is handed over more than once can
+take longer than a single task's timeout.
+
+A hand-over that ends with changes saved but not rolled out fails the step: the addresses
+would be what the project file asks for rather than what is serving. Roll them out with
+`zad project refresh`.
 
 If `clone-from` is specified, the new deployment will inherit configuration from the specified existing deployment. Use `force-clone: true` to re-clone configuration even if the deployment already exists.

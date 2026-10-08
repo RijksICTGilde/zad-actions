@@ -10,11 +10,14 @@ if [ -n "${ZAD_STUB_LOG:-}" ]; then
   printf '%s\n' "$*" >> "$ZAD_STUB_LOG"
 fi
 
-# Strip global flags to find the subcommand.
+# Strip global flags to find the subcommand, remembering the two a response depends on.
+FMT="text"
+COMPONENT=""
 ARGS=()
 while [ $# -gt 0 ]; do
   case "$1" in
-    --output) shift 2 ;;
+    --output) FMT="$2"; shift 2 ;;
+    --component | -c) COMPONENT="$2"; shift 2 ;;
     *) ARGS+=("$1"); shift ;;
   esac
 done
@@ -25,6 +28,19 @@ set -- "${ARGS[@]:-}"
 [ -n "${ZAD_STUB_CREATE:-}" ] || ZAD_STUB_CREATE='{"status":"ok"}'
 [ -n "${ZAD_STUB_URLS:-}" ]   || ZAD_STUB_URLS='{}'
 [ -n "${ZAD_STUB_DELETE:-}" ] || ZAD_STUB_DELETE='{"deleted":true}'
+[ -n "${ZAD_STUB_PENDING:-}" ] || ZAD_STUB_PENDING='{"count":0}'
+
+# Successive `task wait` calls answer differently, or a hand-over chain cannot be tested.
+# The counter is a file because every stub call is its own process; each case points
+# ZAD_STUB_STATE at a fresh path. ZAD_STUB_TASK_WAIT_<n> answers the n-th call,
+# ZAD_STUB_TASK_WAIT every call without a numbered variable, _EXIT_<n> sets the exit code.
+next_task_call() {
+  local state="${ZAD_STUB_STATE:-${RUNNER_TEMP:-/tmp}/zad-stub-task-calls}" n=0
+  [ -f "$state" ] && n=$(cat "$state")
+  n=$((n + 1))
+  printf '%s' "$n" > "$state"
+  printf '%s' "$n"
+}
 
 # A stub that emits malformed json teaches the tests the wrong lesson, so it stops
 # instead of printing a traceback and carrying on.
@@ -39,13 +55,63 @@ case "${1:-}${2:+ $2}" in
   "version"|"--version")
     echo "zadctl 0.12.0-stub" ;;
   "deployment create")
-    # The real CLI reads the manifest from stdin when given --file -.
-    cat >/dev/null 2>&1 || true
+    # Only with --file -, as the real CLI. Draining unconditionally blocks a
+    # single-component create wherever stdin stays open, as it does in a local harness.
+    case " $* " in
+      *" --file - "*) cat >/dev/null 2>&1 || true ;;
+    esac
     pretty "$ZAD_STUB_CREATE" ;;
   "deployment url")
-    pretty "$ZAD_STUB_URLS" ;;
+    # Two shapes, as the real CLI: a bare address for one component (so `URL=$(...)` works)
+    # and the whole mapping under --output json. Answering JSON for both let a
+    # single-component deploy write a pretty-printed document into GITHUB_OUTPUT and pass.
+    if [ "$FMT" = "json" ]; then
+      pretty "$ZAD_STUB_URLS"
+    elif [ -n "$COMPONENT" ]; then
+      ADDRESS=$(printf '%s\n' "$ZAD_STUB_URLS" |
+        python3 -c 'import json,sys; print(json.load(sys.stdin).get(sys.argv[1]) or "")' "$COMPONENT") || {
+        echo "stub: not valid json: $ZAD_STUB_URLS" >&2
+        exit 70
+      }
+      if [ -z "$ADDRESS" ]; then
+        # Exits non-zero naming the components that do have one, like the real CLI.
+        HAVE=$(printf '%s\n' "$ZAD_STUB_URLS" | python3 -c 'import json,sys; print(", ".join(sorted(json.load(sys.stdin))) or "none")')
+        echo "Component '$COMPONENT' has no address in deployment '${3:-?}'. With one: $HAVE." >&2
+        exit 2
+      fi
+      printf '%s\n' "$ADDRESS"
+    else
+      printf '%s\n' "$ZAD_STUB_URLS" |
+        python3 -c 'import json,sys; [print(f"{n}\t{a}") for n, a in sorted(json.load(sys.stdin).items())]'
+    fi
+    ;;
   "deployment delete")
     pretty "$ZAD_STUB_DELETE" ;;
+  "task wait")
+    N=$(next_task_call)
+    # The one answer `pretty` refuses to produce: zero exit, invalid JSON, like a CLI that
+    # crashed mid-document. The only route to the caller's "no usable JSON" branch, since a
+    # non-zero exit takes the failed-wait branch. Verbatim, so the guard above still catches
+    # malformed JSON a test wrote by accident.
+    if [ -n "${ZAD_STUB_TASK_WAIT_RAW:-}" ]; then
+      printf '%s\n' "$ZAD_STUB_TASK_WAIT_RAW"
+      exit 0
+    fi
+    VAR="ZAD_STUB_TASK_WAIT_$N"
+    DOC="${!VAR:-}"
+    [ -n "$DOC" ] || DOC="${ZAD_STUB_TASK_WAIT:-}"
+    if [ -z "$DOC" ]; then
+      echo "stub: no ZAD_STUB_TASK_WAIT or ZAD_STUB_TASK_WAIT_$N for: $*" >&2
+      exit 65
+    fi
+    EXIT_VAR="ZAD_STUB_TASK_WAIT_EXIT_$N"
+    pretty "$DOC"
+    exit "${!EXIT_VAR:-${ZAD_STUB_EXIT:-0}}" ;;
+  "project pending")
+    # Fails the lookup as the real CLI does: a document on stdout, non-zero exit. The action
+    # must read that as "count unknown", not as zero, and must not fail a deploy over it.
+    pretty "$ZAD_STUB_PENDING"
+    exit "${ZAD_STUB_PENDING_EXIT:-0}" ;;
   *)
     echo "stub: unhandled command: $*" >&2; exit 64 ;;
 esac

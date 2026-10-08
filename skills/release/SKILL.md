@@ -1,9 +1,6 @@
 ---
 name: release
-description: >-
-  Maak een nieuwe release van ZAD Actions. Gebruik bij vragen over
-  'release', 'versie', 'tag', 'version', 'publiceren', 'uitbrengen'.
-model: sonnet
+description: "Maak een nieuwe release van ZAD Actions. Gebruik bij vragen over 'release', 'versie', 'tag', 'version', 'publiceren', 'uitbrengen'."
 allowed-tools:
   - Bash(git tag *)
   - Bash(git push *)

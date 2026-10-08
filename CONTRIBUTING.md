@@ -80,6 +80,23 @@ This project uses [Semantic Versioning](https://semver.org/):
 - **Minor** (v1.1.0): New features, new optional inputs
 - **Patch** (v1.0.1): Bug fixes, documentation updates
 
+The repo publishes two things from one tag: the composite actions, referenced as
+`uses: RijksICTGilde/zad-actions/deploy@v4`, and the Claude Code / Cursor plugin
+that the developer.overheid.nl marketplace installs. **They share one version
+line**, so a release of either moves the same number. One number to reason
+about, and the marketplace never lags behind the actions.
+
+Set it with the helper, which also regenerates the two platform manifests from
+the neutral `.plugin/plugin.json`:
+
+```bash
+python3 scripts/bump_version.py 4.3.1
+```
+
+Commit the three manifests, then tag `v4.3.1`. The release workflow refuses a
+tag whose version does not match `.plugin/plugin.json`, so a forgotten bump
+fails the release instead of shipping a plugin that claims an older version.
+
 ## Pull Request Process
 
 1. Update the README.md if you changed inputs/outputs

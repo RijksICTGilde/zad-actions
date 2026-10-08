@@ -159,6 +159,9 @@ runs:
     - name: Setup uv
       if: steps.bot-check.outputs.skipped != 'true'
       uses: astral-sh/setup-uv@v6
+      with:
+        version: "0.12.17"
+        enable-cache: "false"
 
     - name: Install zad-cli
       if: steps.bot-check.outputs.skipped != 'true'

@@ -812,7 +812,9 @@ jobs:
           {
             echo 'ZAD_STUB_CREATE={"status":"superseded","superseded_by":{"task_id":"task-kkk","task_type":"refresh_project"}}'
             echo 'ZAD_STUB_CREATE_STDERR='
-            echo 'ZAD_STUB_TASK_WAIT={"status":"completed","processing":{"status":"completed","component_failures":[{"component":"web","deployment":"pr123","failure_type":"image_pull","message":"Back-off pulling image","title":"registry did not deliver the image"}]}}'
+            FAILURE='{"component":"web","deployment":"pr123","failure_type":"image_pull",'
+            FAILURE+='"message":"Back-off pulling image","title":"registry did not deliver the image"}'
+            echo "ZAD_STUB_TASK_WAIT={\"status\":\"completed\",\"processing\":{\"status\":\"completed\",\"component_failures\":[$FAILURE]}}"
             echo 'ZAD_STUB_TASK_WAIT_1='
             echo 'ZAD_STUB_TASK_WAIT_2='
             echo 'ZAD_STUB_TASK_WAIT_EXIT_1='
@@ -877,7 +879,8 @@ jobs:
       - name: A hand-over whose failures are another deployment's
         run: |
           {
-            echo 'ZAD_STUB_TASK_WAIT={"status":"partial","processing":{"status":"completed","component_failures":[{"component":"web","deployment":"test","failure_type":"image_pull","message":"Back-off pulling image"}]}}'
+            FAILURE='{"component":"web","deployment":"test","failure_type":"image_pull","message":"Back-off pulling image"}'
+            echo "ZAD_STUB_TASK_WAIT={\"status\":\"partial\",\"processing\":{\"status\":\"completed\",\"component_failures\":[$FAILURE]}}"
             echo "ZAD_STUB_STATE=$RUNNER_TEMP/handover-warnings-3.calls"
             echo "ZAD_STUB_LOG=$RUNNER_TEMP/handover-warnings-3.log"
           } >> "$GITHUB_ENV"
@@ -1210,6 +1213,55 @@ jobs:
           check "an empty document"        '{}'                                   ""
           check "output that is not JSON"  'zadctl: command not found'            ""
           check "nothing at all"           ''                                     ""
+
+      - name: A platform text that could forge a log line stays inside its annotation
+        run: |
+          source scripts/zad-common.sh
+          # Kubelet messages reach these annotations verbatim. A raw newline in one would end
+          # the annotation and run the remainder as a workflow command of its own.
+          WARNINGS=$(jq -nc '[{
+            headline: "unhealthy\n::error::forged by a headline",
+            details: ["web (image_pull): 100% gone\r\n::add-mask::forged by a detail"],
+            next_steps: ["Inspect\n::warning::forged by a next step"]
+          }]')
+
+          OUT=$(report_zad_warnings "Deployment" "$WARNINGS" error)
+          echo "$OUT"
+
+          [ "$(echo "$OUT" | wc -l)" -eq 3 ] || { echo "::error::expected three annotations, one per text"; exit 1; }
+          if echo "$OUT" | grep -q '^::\(add-mask\|warning\)::\|^::error::forged'; then
+            echo "::error::a platform text started a workflow command of its own"
+            exit 1
+          fi
+          echo "$OUT" | grep -qF '100%25 gone%0D%0A::add-mask::' || { echo "::error::the detail was not encoded as command data"; exit 1; }
+
+      - name: The result a hand-over ends in is judged for this deployment only
+        run: |
+          source scripts/zad-common.sh
+          # Mirrors degraded_diagnoses in zad-cli, which `task wait` never runs. A project-wide
+          # task reports every deployment it touched; another one's failure is not this rollout's.
+          own='{"component":"web","deployment":"pr123","failure_type":"image_pull","message":"raw","title":"no image"}'
+          other='{"component":"web","deployment":"test","failure_type":"image_pull","message":"raw"}'
+          bare='{"component":"web","failure_type":"crash","message":"boom"}'
+          check() {
+            local label="$1" doc="$2" want="$3" got
+            got=$(task_result_warnings "$doc" pr123 | jq -r 'map(.headline) | join(" | ")')
+            [ "$got" = "$want" ] || { echo "::error::$label: expected '$want', got '$got'"; exit 1; }
+          }
+          unhealthy="The operation succeeded, but some components are unhealthy."
+          check "a clean result" '{"status":"completed"}' ""
+          check "its own failure" "{\"processing\":{\"component_failures\":[$own]}}" "$unhealthy"
+          check "a failure naming no one" "{\"processing\":{\"component_failures\":[$bare]}}" "$unhealthy"
+          check "only another's failure" "{\"status\":\"partial\",\"processing\":{\"component_failures\":[$other]}}" ""
+          check "own and another's" "{\"processing\":{\"component_failures\":[$other,$own]}}" "$unhealthy"
+          check "warnings" '{"status":"completed","warnings":["w"]}' "The operation succeeded with warnings."
+          check "a degraded status" '{"status":"Degraded"}' "The operation finished with status Degraded."
+          check "processing that is null" '{"processing":null}' ""
+          check "an array" '[{"status":"partial"}]' ""
+          check "output that is not JSON" 'zadctl: command not found' ""
+          DETAIL=$(task_result_warnings "{\"processing\":{\"component_failures\":[$own]}}" pr123 | jq -r '.[0].details[0]')
+          [ "$DETAIL" = "web (image_pull): no image" ] ||
+            { echo "::error::the translated title must be preferred over the raw message, got '$DETAIL'"; exit 1; }
 
   deploy-log:
     name: deploy-log

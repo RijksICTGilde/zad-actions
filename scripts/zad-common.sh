@@ -177,14 +177,19 @@ task_result_warnings() {
 # Emit one annotation per zad-cli warning, with its details and next steps.
 #
 # Usage: report_zad_warnings <operation> <warnings-json-array> <error|warning>
+#
+# The texts come from the platform, kubelet messages included, so each is encoded the way
+# workflow-command data must be: a raw newline would end the annotation and let the rest
+# of the text run as a command of its own (::add-mask::, a forged ::error::).
 report_zad_warnings() {
   local operation="$1" warnings="$2" level="$3"
   [ "$warnings" = "[]" ] && return 0
   echo "$warnings" | jq -r --arg op "$operation" --arg lvl "$level" '
+    def data: tostring | gsub("%"; "%25") | gsub("\r"; "%0D") | gsub("\n"; "%0A");
     .[] |
-    "::\($lvl)::\($op) reported: \(.headline // "a warning")",
-    (.details[]? | "::\($lvl)::Details: \(.)"),
-    (.next_steps[]? | "::\($lvl)::Next step: \(.)")'
+    "::\($lvl)::\($op | data) reported: \(.headline // "a warning" | data)",
+    (.details[]? | "::\($lvl)::Details: \(data)"),
+    (.next_steps[]? | "::\($lvl)::Next step: \(data)")'
 }
 
 # Parse zad-cli JSON error output and emit GitHub Actions annotations.

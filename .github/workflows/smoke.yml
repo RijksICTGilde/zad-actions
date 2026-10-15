@@ -702,6 +702,110 @@ jobs:
           # The result does not carry the count, so the project is the right place to ask.
           grep -q 'project pending' "$ZAD_STUB_LOG" || { echo "::error::the count was never asked for"; exit 1; }
 
+      # The CLI's own shape: a plain-text line, then the warnings object pretty-printed on
+      # stderr. The text line is what a parser that hands all of stderr to jq trips over.
+      - name: A rollout that succeeded with an unhealthy component
+        run: |
+          {
+            echo 'ZAD_STUB_CREATE={"status":"completed","deployment":"pr123"}'
+            echo 'ZAD_STUB_CREATE_STDERR<<EOF'
+            echo "Deployment 'pr123' created/updated in project 'testproject'."
+            cat <<'JSON'
+          {
+            "warnings": [
+              {
+                "fault": "UserApp",
+                "headline": "The operation succeeded, but some components are unhealthy.",
+                "details": [
+                  "web (image_pull): registry did not deliver the image"
+                ],
+                "next_steps": [
+                  "Inspect the deployment."
+                ]
+              }
+            ]
+          }
+          JSON
+            echo 'EOF'
+            echo 'ZAD_STUB_TASK_WAIT='
+            echo 'ZAD_STUB_TASK_WAIT_1='
+            echo 'ZAD_STUB_TASK_WAIT_2='
+            echo 'ZAD_STUB_TASK_WAIT_EXIT_1='
+            echo 'ZAD_STUB_PENDING={"count":0}'
+            echo 'ZAD_STUB_PENDING_EXIT='
+            echo 'ZAD_STUB_URLS={"web":"https://web.example"}'
+            echo "ZAD_STUB_STATE=$RUNNER_TEMP/warnings-1.calls"
+            echo "ZAD_STUB_LOG=$RUNNER_TEMP/warnings-1.log"
+          } >> "$GITHUB_ENV"
+
+      - name: Warnings fail the step when asked to
+        id: warnings-strict
+        continue-on-error: true
+        uses: ./deploy
+        with:
+          api-key: stub
+          skip-bot-prs: 'false'
+          project-id: testproject
+          deployment-name: pr123
+          component: web
+          image: ghcr.io/o/web:pr-123
+          fail-on-warnings: 'true'
+
+      - name: An unhealthy rollout is not a deploy under fail-on-warnings
+        env:
+          OUTCOME: ${{ steps.warnings-strict.outcome }}
+          URL: ${{ steps.warnings-strict.outputs.url }}
+        run: |
+          cat "$ZAD_STUB_LOG"
+          [ "$OUTCOME" = "failure" ] || { echo "::error::expected the step to fail, outcome was '$OUTCOME'"; exit 1; }
+          [ -z "$URL" ] || { echo "::error::a url was published for an unhealthy rollout: '$URL'"; exit 1; }
+          grep -q -- '--strict' "$ZAD_STUB_LOG" || { echo "::error::--strict was not passed to the CLI"; exit 1; }
+
+      - name: Same rollout, default inputs
+        run: echo "ZAD_STUB_LOG=$RUNNER_TEMP/warnings-2.log" >> "$GITHUB_ENV"
+
+      - name: Without fail-on-warnings the same answer is a success
+        id: warnings-default
+        uses: ./deploy
+        with:
+          api-key: stub
+          skip-bot-prs: 'false'
+          project-id: testproject
+          deployment-name: pr123
+          component: web
+          image: ghcr.io/o/web:pr-123
+
+      - name: The default leaves existing callers as they were
+        env:
+          URL: ${{ steps.warnings-default.outputs.url }}
+        run: |
+          # No continue-on-error above: a default that failed on warnings would have broken
+          # every caller that never asked for it, and stopped the job before this step.
+          [ "$URL" = "https://web.example" ] || { echo "::error::expected the web url, got '$URL'"; exit 1; }
+          if grep -q -- '--strict' "$ZAD_STUB_LOG"; then
+            echo "::error::--strict was passed without fail-on-warnings"
+            exit 1
+          fi
+
+      - name: A value that is not a boolean
+        id: warnings-typo
+        continue-on-error: true
+        uses: ./deploy
+        with:
+          api-key: stub
+          skip-bot-prs: 'false'
+          project-id: testproject
+          deployment-name: pr123
+          component: web
+          image: ghcr.io/o/web:pr-123
+          fail-on-warnings: 'True'
+
+      - name: A typo must not quietly mean false
+        env:
+          OUTCOME: ${{ steps.warnings-typo.outcome }}
+        run: |
+          [ "$OUTCOME" = "failure" ] || { echo "::error::expected the step to fail, outcome was '$OUTCOME'"; exit 1; }
+
   cleanup:
     name: cleanup
     runs-on: ubuntu-latest

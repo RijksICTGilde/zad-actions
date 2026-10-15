@@ -107,6 +107,48 @@ validate_integer() {
   fi
 }
 
+# Validate that a value is exactly "true" or "false". A typo must not quietly mean "false".
+# Usage: validate_boolean <name> <value>
+validate_boolean() {
+  local name="$1" value="$2"
+  case "$value" in
+    true | false) ;;
+    *)
+      echo "Error: $name must be 'true' or 'false'"
+      exit 1
+      ;;
+  esac
+}
+
+# Print the warnings zad-cli wrote to stderr as one JSON array, or [] when there are none.
+#
+# Usage: zad_warnings <stderr-file>
+#
+# In --output json mode a degraded-but-successful operation prints {"warnings": [...]} to
+# stderr with json.dumps(indent=2), so the object starts and ends with a brace on a line of
+# its own. Other stderr lines (progress, "created/updated") are plain text, so only those
+# blocks are handed to jq. Anything unreadable counts as no warnings: the caller then falls
+# back to its usual error path rather than failing on a parse.
+zad_warnings() {
+  local file="$1" warnings
+  warnings=$(sed -n '/^{$/,/^}$/p' "$file" | jq -cs 'map(.warnings? // empty) | add // []' 2>/dev/null) ||
+    warnings=""
+  echo "${warnings:-[]}"
+}
+
+# Emit one annotation per zad-cli warning, with its details and next steps.
+#
+# Usage: report_zad_warnings <operation> <warnings-json-array> <error|warning>
+report_zad_warnings() {
+  local operation="$1" warnings="$2" level="$3"
+  [ "$warnings" = "[]" ] && return 0
+  echo "$warnings" | jq -r --arg op "$operation" --arg lvl "$level" '
+    .[] |
+    "::\($lvl)::\($op) reported: \(.headline // "a warning")",
+    (.details[]? | "::\($lvl)::Details: \(.)"),
+    (.next_steps[]? | "::\($lvl)::Next step: \(.)")'
+}
+
 # Parse zad-cli JSON error output and emit GitHub Actions annotations.
 #
 # Usage: report_zad_error <operation> <cli_stdout> <project-id>

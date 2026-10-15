@@ -37,6 +37,13 @@ inputs:
     description: 'Force clone even if deployment exists (optional, default: false)'
     required: false
     default: 'false'
+  fail-on-warnings:
+    description: >-
+      Fail the step when Operations Manager accepts the rollout but reports warnings, such as
+      components that are unhealthy or an image the registry could not deliver. Without it those
+      warnings become annotations and the step succeeds.
+    required: false
+    default: 'false'
   api-base-url:
     description: 'ZAD Operations Manager API base URL'
     required: false
@@ -189,6 +196,7 @@ runs:
         COMPONENTS: ${{ inputs.components }}
         CLONE_FROM: ${{ inputs.clone-from }}
         FORCE_CLONE: ${{ inputs.force-clone }}
+        FAIL_ON_WARNINGS: ${{ inputs.fail-on-warnings }}
         PATH_SUFFIX: ${{ inputs.path-suffix }}
         DOMAIN_FORMAT: ${{ inputs.domain-format }}
         SUBDOMAIN: ${{ inputs.subdomain }}
@@ -209,6 +217,7 @@ runs:
         validate_input "domain-format" "$DOMAIN_FORMAT" true
         validate_input "subdomain" "$SUBDOMAIN" true
         validate_input "base-domain" "$BASE_DOMAIN" true
+        validate_boolean "fail-on-warnings" "$FAIL_ON_WARNINGS"
 
         # Determine mode and validate component inputs
         MULTI_COMPONENT=false
@@ -268,7 +277,14 @@ runs:
         fi
 
         # Build zad CLI command
-        ZAD_CMD=(zad --output json deployment create "$DEPLOYMENT_NAME" --yes)
+        # --strict is a global flag, so it goes before the subcommand. It turns "succeeded,
+        # but some components are unhealthy" into a non-zero exit; without it that answer
+        # is a success with a note on stderr that nobody reads.
+        ZAD_CMD=(zad --output json)
+        if [ "$FAIL_ON_WARNINGS" = "true" ]; then
+          ZAD_CMD+=(--strict)
+        fi
+        ZAD_CMD+=(deployment create "$DEPLOYMENT_NAME" --yes)
 
         # --components was removed in zad-cli v0.10.0, not deprecated: with the pin at
         # v0.12.0 the old call fails outright rather than warning. -f - takes the same
@@ -299,16 +315,28 @@ runs:
 
         # Execute CLI (retry, polling, error handling all built in)
         # In --output json mode, errors go to stdout as JSON with status_code
+        # stderr goes to a file so the warnings on it can be read, then on to the log unchanged.
+        ZAD_STDERR=$(mktemp)
         if [ -n "$MANIFEST" ]; then
-          RESULT=$(printf '%s' "$MANIFEST" | "${ZAD_CMD[@]}") && ZAD_EXIT=0 || ZAD_EXIT=$?
+          RESULT=$(printf '%s' "$MANIFEST" | "${ZAD_CMD[@]}" 2>"$ZAD_STDERR") && ZAD_EXIT=0 || ZAD_EXIT=$?
         else
-          RESULT=$("${ZAD_CMD[@]}") && ZAD_EXIT=0 || ZAD_EXIT=$?
+          RESULT=$("${ZAD_CMD[@]}" 2>"$ZAD_STDERR") && ZAD_EXIT=0 || ZAD_EXIT=$?
         fi
+        cat "$ZAD_STDERR" >&2
+        WARNINGS=$(zad_warnings "$ZAD_STDERR")
+        rm -f "$ZAD_STDERR"
 
         if [ "$ZAD_EXIT" -ne 0 ]; then
-          report_zad_error "Deployment" "$RESULT" "$ZAD_PROJECT_ID"
+          # Under --strict a rollout with warnings exits non-zero while stdout holds the task
+          # result of a call that succeeded, so report_zad_error would find no error in it.
+          if [ "$FAIL_ON_WARNINGS" = "true" ] && [ "$WARNINGS" != "[]" ]; then
+            report_zad_warnings "Deployment" "$WARNINGS" error
+          else
+            report_zad_error "Deployment" "$RESULT" "$ZAD_PROJECT_ID"
+          fi
           exit 1
         fi
+        report_zad_warnings "Deployment" "$WARNINGS" warning
 
         echo "Deployment task accepted"
 

@@ -14,6 +14,7 @@ Deploys a container image to ZAD Operations Manager.
 | `components` | No | `''` | JSON array of components: `[{"name": "web", "image": "ghcr.io/org/app:tag"}]`. Takes precedence over `component`/`image`. |
 | `clone-from` | No | `''` | Clone configuration from existing deployment |
 | `force-clone` | No | `false` | Force clone even if deployment already exists |
+| `fail-on-warnings` | No | `false` | Fail when Operations Manager accepts the rollout but reports warnings (unhealthy components, an image the registry could not deliver). Off, the warnings become annotations and the step succeeds |
 | `api-base-url` | No | `https://operations-manager.rig.prd1.gn2.quattro.rijksapps.nl/api` | ZAD Operations Manager API base URL |
 | `comment-on-pr` | No | `false` | Post/update a comment on the PR with the deployment URL |
 | `github-token` | No | `github.token` | GitHub token for PR commenting (defaults to automatic token) |

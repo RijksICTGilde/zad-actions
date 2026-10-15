@@ -1170,7 +1170,7 @@ jobs:
           export ZAD_API_KEY="stub" ZAD_API_URL="https://zad.example/api" ZAD_PROJECT_ID="testproject"
           export ZAD_MAX_RETRIES="3" ZAD_RETRY_DELAY="2" ZAD_TASK_TIMEOUT="300" ZAD_TASK_POLL_INTERVAL="3"
           export DEPLOYMENT_NAME="pr123" COMPONENT="web" IMAGE="ghcr.io/o/web:pr-123"
-          export COMPONENTS="" CLONE_FROM="" FORCE_CLONE="false"
+          export COMPONENTS="" CLONE_FROM="" FORCE_CLONE="false" FAIL_ON_WARNINGS="false"
           export PATH_SUFFIX="" DOMAIN_FORMAT="" SUBDOMAIN="" BASE_DOMAIN="" NO_COLOR="1"
           exec bash --noprofile --norc -e -o pipefail "$RUNNER_TEMP/deploy-step.sh" 2>&1
           SH

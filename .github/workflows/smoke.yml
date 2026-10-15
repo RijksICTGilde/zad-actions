@@ -805,6 +805,102 @@ jobs:
           OUTCOME: ${{ steps.warnings-typo.outcome }}
         run: |
           [ "$OUTCOME" = "failure" ] || { echo "::error::expected the step to fail, outcome was '$OUTCOME'"; exit 1; }
+      # `zad task wait` never surfaces warnings, so --strict stops at the create. The task
+      # that took over is read by the action itself; only its own deployment's failures count.
+      - name: A hand-over that ends with an unhealthy component
+        run: |
+          {
+            echo 'ZAD_STUB_CREATE={"status":"superseded","superseded_by":{"task_id":"task-kkk","task_type":"refresh_project"}}'
+            echo 'ZAD_STUB_CREATE_STDERR='
+            echo 'ZAD_STUB_TASK_WAIT={"status":"completed","processing":{"status":"completed","component_failures":[{"component":"web","deployment":"pr123","failure_type":"image_pull","message":"Back-off pulling image","title":"registry did not deliver the image"}]}}'
+            echo 'ZAD_STUB_TASK_WAIT_1='
+            echo 'ZAD_STUB_TASK_WAIT_2='
+            echo 'ZAD_STUB_TASK_WAIT_EXIT_1='
+            echo 'ZAD_STUB_PENDING={"count":0}'
+            echo 'ZAD_STUB_PENDING_EXIT='
+            echo 'ZAD_STUB_URLS={"web":"https://web.example"}'
+            echo "ZAD_STUB_STATE=$RUNNER_TEMP/handover-warnings-1.calls"
+            echo "ZAD_STUB_LOG=$RUNNER_TEMP/handover-warnings-1.log"
+          } >> "$GITHUB_ENV"
+
+      - name: Warnings at the end of a hand-over fail the step when asked to
+        id: handover-warnings-strict
+        continue-on-error: true
+        uses: ./deploy
+        with:
+          api-key: stub
+          skip-bot-prs: 'false'
+          project-id: testproject
+          deployment-name: pr123
+          component: web
+          image: ghcr.io/o/web:pr-123
+          fail-on-warnings: 'true'
+
+      - name: A hand-over is no way around fail-on-warnings
+        env:
+          OUTCOME: ${{ steps.handover-warnings-strict.outcome }}
+          URL: ${{ steps.handover-warnings-strict.outputs.url }}
+        run: |
+          cat "$ZAD_STUB_LOG"
+          [ "$OUTCOME" = "failure" ] || { echo "::error::expected the step to fail, outcome was '$OUTCOME'"; exit 1; }
+          [ -z "$URL" ] || { echo "::error::a url was published for an unhealthy rollout: '$URL'"; exit 1; }
+          grep -q 'task wait task-kkk' "$ZAD_STUB_LOG" || { echo "::error::the task that took over was never waited for"; exit 1; }
+          if grep -q 'deployment url' "$ZAD_STUB_LOG"; then
+            echo "::error::the action asked for addresses after an unhealthy hand-over"
+            exit 1
+          fi
+
+      - name: Same hand-over, default inputs
+        run: |
+          {
+            echo "ZAD_STUB_STATE=$RUNNER_TEMP/handover-warnings-2.calls"
+            echo "ZAD_STUB_LOG=$RUNNER_TEMP/handover-warnings-2.log"
+          } >> "$GITHUB_ENV"
+
+      - name: Without fail-on-warnings the hand-over is a success
+        id: handover-warnings-default
+        uses: ./deploy
+        with:
+          api-key: stub
+          skip-bot-prs: 'false'
+          project-id: testproject
+          deployment-name: pr123
+          component: web
+          image: ghcr.io/o/web:pr-123
+
+      - name: The default still publishes the address after a hand-over
+        env:
+          URL: ${{ steps.handover-warnings-default.outputs.url }}
+        run: |
+          [ "$URL" = "https://web.example" ] || { echo "::error::expected the web url, got '$URL'"; exit 1; }
+
+      - name: A hand-over whose failures are another deployment's
+        run: |
+          {
+            echo 'ZAD_STUB_TASK_WAIT={"status":"partial","processing":{"status":"completed","component_failures":[{"component":"web","deployment":"test","failure_type":"image_pull","message":"Back-off pulling image"}]}}'
+            echo "ZAD_STUB_STATE=$RUNNER_TEMP/handover-warnings-3.calls"
+            echo "ZAD_STUB_LOG=$RUNNER_TEMP/handover-warnings-3.log"
+          } >> "$GITHUB_ENV"
+
+      - name: A neighbour's failure must not fail this rollout
+        id: handover-warnings-neighbour
+        uses: ./deploy
+        with:
+          api-key: stub
+          skip-bot-prs: 'false'
+          project-id: testproject
+          deployment-name: pr123
+          component: web
+          image: ghcr.io/o/web:pr-123
+          fail-on-warnings: 'true'
+
+      - name: The rollout of pr123 itself was healthy
+        env:
+          URL: ${{ steps.handover-warnings-neighbour.outputs.url }}
+        run: |
+          # No continue-on-error above: a project-wide task that took over reports every
+          # deployment it touched, and failing on test's image would fail pr123 for nothing.
+          [ "$URL" = "https://web.example" ] || { echo "::error::expected the web url, got '$URL'"; exit 1; }
 
   cleanup:
     name: cleanup

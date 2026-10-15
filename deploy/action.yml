@@ -348,6 +348,18 @@ runs:
         fi
         RESULT=$(resolve_task_handover "$RESULT" "Deployment") || exit 1
 
+        # The create result was already judged by the CLI above; the one a hand-over ends
+        # in was not, because `task wait` does not surface warnings. Judged before the
+        # addresses are asked, so an unhealthy rollout publishes none.
+        if [ "$HANDED_OVER" = "true" ]; then
+          HANDOVER_WARNINGS=$(task_result_warnings "$RESULT" "$DEPLOYMENT_NAME")
+          if [ "$FAIL_ON_WARNINGS" = "true" ] && [ "$HANDOVER_WARNINGS" != "[]" ]; then
+            report_zad_warnings "Deployment" "$HANDOVER_WARNINGS" error
+            exit 1
+          fi
+          report_zad_warnings "Deployment" "$HANDOVER_WARNINGS" warning
+        fi
+
         # The count is project-wide and can name a change this deploy never made, so it is
         # only asked after a hand-over put another task in charge of this rollout.
         if [ "$HANDED_OVER" = "true" ]; then

@@ -136,6 +136,44 @@ zad_warnings() {
   echo "${warnings:-[]}"
 }
 
+# Print what a task result that took over a rollout says about its health, as the same
+# JSON array zad_warnings prints, or [] when it reports nothing.
+#
+# Usage: task_result_warnings <task-result-json> <deployment-name>
+#
+# `zad task wait` renders the result but never surfaces warnings, so --strict does not
+# reach the end of a hand-over chain; this reads it the way the CLI's degraded_diagnoses
+# reads a create result: component failures, `warnings`, or a partial/degraded status.
+# The task that took over can be project-wide, so failures that name another deployment
+# are left out: they are not this rollout's, and would fail it for a neighbour's image.
+task_result_warnings() {
+  local result="$1" deployment="$2" warnings
+  warnings=$(echo "$result" | jq -c --arg d "$deployment" '
+    if type != "object" then [] else
+      ([.processing.component_failures? // [] | .[]? | select(type == "object")]) as $all
+      | [$all[] | select((.deployment // "") == "" or .deployment == $d)] as $own
+      | [.warnings? // [] | .[]? | if type == "string" then . else tojson end] as $w
+      | (if ($own | length) > 0 then [{
+            headline: "The operation succeeded, but some components are unhealthy.",
+            details: [$own[] | "\(.component // "?") (\(.failure_type // "?")): \(if (.title // "") != "" then .title else (.message // "") end)"],
+            next_steps: ["Inspect the deployment with: zad deployment describe \($d)"]
+          }] else [] end)
+      + (if ($w | length) > 0 then [{
+            headline: "The operation succeeded with warnings.",
+            details: $w,
+            next_steps: ["Review the warnings above; they usually point at your configuration."]
+          }] else [] end)
+      + (if ((.status // "") | ascii_downcase) as $s
+            | ($s == "partial" or $s == "degraded") and ($all | length) == 0 and ($w | length) == 0
+         then [{
+            headline: "The operation finished with status \(.status).",
+            details: [.message // empty],
+            next_steps: ["Inspect the deployment with: zad deployment describe \($d)"]
+          }] else [] end)
+    end' 2>/dev/null) || warnings=""
+  echo "${warnings:-[]}"
+}
+
 # Emit one annotation per zad-cli warning, with its details and next steps.
 #
 # Usage: report_zad_warnings <operation> <warnings-json-array> <error|warning>

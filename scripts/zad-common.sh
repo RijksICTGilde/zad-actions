@@ -159,8 +159,8 @@ task_result_warnings() {
             headline: "The operation succeeded, but some components are unhealthy.",
             details: [$own[] | "\(.component // "?") (\(.failure_type // "?")): \(if (.title // "") != "" then .title else (.message // "") end)",
               ((.logs? // []) | if type == "array" then .[:5][] | "    \(.)" else empty end)],
-            next_steps: ([$own[] | .suggestion // "" | select(. != "")] | unique)
-              + ["Inspect the deployment with: zad deployment describe \($d)"]
+            next_steps: (([$own[] | .suggestion // "" | select(. != "")] | unique)
+              + ["Inspect the deployment with: zad deployment describe \($d)"])
           }] else [] end)
       + (if ($w | length) > 0 then [{
             headline: "The operation succeeded with warnings.",

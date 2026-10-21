@@ -153,10 +153,14 @@ task_result_warnings() {
       ([.processing.component_failures? // [] | .[]? | select(type == "object")]) as $all
       | [$all[] | select((.deployment // "") == "" or .deployment == $d)] as $own
       | [.warnings? // [] | .[]? | if type == "string" then . else tojson end] as $w
+      # As diagnose_task_failure: each failure with the first five lines of its logs, and
+      # the platform suggestions as next steps, so a hand-over says what a direct create says.
       | (if ($own | length) > 0 then [{
             headline: "The operation succeeded, but some components are unhealthy.",
-            details: [$own[] | "\(.component // "?") (\(.failure_type // "?")): \(if (.title // "") != "" then .title else (.message // "") end)"],
-            next_steps: ["Inspect the deployment with: zad deployment describe \($d)"]
+            details: [$own[] | "\(.component // "?") (\(.failure_type // "?")): \(if (.title // "") != "" then .title else (.message // "") end)",
+              ((.logs? // []) | if type == "array" then .[:5][] | "    \(.)" else empty end)],
+            next_steps: ([$own[] | .suggestion // "" | select(. != "")] | unique)
+              + ["Inspect the deployment with: zad deployment describe \($d)"]
           }] else [] end)
       + (if ($w | length) > 0 then [{
             headline: "The operation succeeded with warnings.",
@@ -167,16 +171,19 @@ task_result_warnings() {
             | ($s == "partial" or $s == "degraded") and ($all | length) == 0 and ($w | length) == 0
          then [{
             headline: "The operation finished with status \(.status).",
-            details: [.message // empty],
+            summary: .message,
             next_steps: ["Inspect the deployment with: zad deployment describe \($d)"]
           }] else [] end)
     end' 2>/dev/null) || warnings=""
   echo "${warnings:-[]}"
 }
 
-# Emit one annotation per zad-cli warning, with its details and next steps.
+# Emit one annotation per zad-cli warning, with its summary, details and next steps.
 #
 # Usage: report_zad_warnings <operation> <warnings-json-array> <error|warning>
+#
+# The summary is where the CLI puts the reason for a refused approval or a partial status;
+# the headline alone ("Refused: domain") does not say why.
 #
 # The texts come from the platform, kubelet messages included, so each is encoded the way
 # workflow-command data must be: a raw newline would end the annotation and let the rest
@@ -188,7 +195,8 @@ report_zad_warnings() {
     def data: tostring | gsub("%"; "%25") | gsub("\r"; "%0D") | gsub("\n"; "%0A");
     .[] |
     "::\($lvl)::\($op | data) reported: \(.headline // "a warning" | data)",
-    (.details[]? | "::\($lvl)::Details: \(data)"),
+    (.summary // empty | select(. != "") | "::\($lvl)::\(data)"),
+    (.details[]? |"::\($lvl)::Details: \(data)"),
     (.next_steps[]? | "::\($lvl)::Next step: \(data)")'
 }
 

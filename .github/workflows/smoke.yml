@@ -1263,6 +1263,33 @@ jobs:
           [ "$DETAIL" = "web (image_pull): no image" ] ||
             { echo "::error::the translated title must be preferred over the raw message, got '$DETAIL'"; exit 1; }
 
+          # What a direct create shows, a hand-over shows too: log lines and suggestions.
+          rich=$(jq -nc '{component: "web", deployment: "pr123", failure_type: "crash", message: "boom",
+            logs: ["l1", "l2", "l3", "l4", "l5", "l6"], suggestion: "Check the start command"}')
+          RICH=$(task_result_warnings "{\"processing\":{\"component_failures\":[$rich,$rich]}}" pr123)
+          [ "$(echo "$RICH" | jq '.[0].details | map(select(startswith("    "))) | length')" -eq 10 ] ||
+            { echo "::error::expected the first five log lines of each failure"; exit 1; }
+          [ "$(echo "$RICH" | jq -r '.[0].next_steps[0]')" = "Check the start command" ] ||
+            { echo "::error::the platform suggestion must be the first next step"; exit 1; }
+          [ "$(echo "$RICH" | jq '.[0].next_steps | length')" -eq 2 ] ||
+            { echo "::error::a suggestion shared by two failures must be listed once"; exit 1; }
+          SUMMARY=$(task_result_warnings '{"status":"partial","message":"2 of 3 rolled out"}' pr123 | jq -r '.[0].summary')
+          [ "$SUMMARY" = "2 of 3 rolled out" ] ||
+            { echo "::error::a partial status must carry its message as the summary, got '$SUMMARY'"; exit 1; }
+
+      - name: A warning's summary reaches its annotation
+        run: |
+          source scripts/zad-common.sh
+          # Where the CLI says why an approval was refused; the headline alone does not.
+          WARNINGS=$(jq -nc '[{headline: "Refused: domain - app.example.nl", summary: "Not yours\n::error::forged", details: [], next_steps: []}]')
+          OUT=$(report_zad_warnings "Deployment" "$WARNINGS" error)
+          echo "$OUT"
+          [ "$(echo "$OUT" | wc -l)" -eq 2 ] || { echo "::error::expected headline and summary"; exit 1; }
+          echo "$OUT" | grep -qxF '::error::Not yours%0A::error::forged' ||
+            { echo "::error::the summary is missing or not encoded as command data"; exit 1; }
+          NOSUM=$(report_zad_warnings "Deployment" '[{"headline":"h","summary":null}]' warning)
+          [ "$(echo "$NOSUM" | wc -l)" -eq 1 ] || { echo "::error::a null summary must add no line"; exit 1; }
+
   deploy-log:
     name: deploy-log
     runs-on: ubuntu-latest

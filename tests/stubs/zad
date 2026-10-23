@@ -12,11 +12,13 @@ fi
 
 # Strip global flags to find the subcommand, remembering the two a response depends on.
 FMT="text"
+STRICT=0
 COMPONENT=""
 ARGS=()
 while [ $# -gt 0 ]; do
   case "$1" in
     --output) FMT="$2"; shift 2 ;;
+    --strict) STRICT=1; shift ;;
     --component | -c) COMPONENT="$2"; shift 2 ;;
     *) ARGS+=("$1"); shift ;;
   esac
@@ -60,7 +62,14 @@ case "${1:-}${2:+ $2}" in
     case " $* " in
       *" --file - "*) cat >/dev/null 2>&1 || true ;;
     esac
-    pretty "$ZAD_STUB_CREATE" ;;
+    pretty "$ZAD_STUB_CREATE"
+    # What the real CLI does with warnings: the result stays on stdout, the warnings go to
+    # stderr, and only --strict turns them into a non-zero exit.
+    if [ -n "${ZAD_STUB_CREATE_STDERR:-}" ]; then
+      printf '%s\n' "$ZAD_STUB_CREATE_STDERR" >&2
+      [ "$STRICT" = "1" ] && exit 1
+    fi
+    ;;
   "deployment url")
     # Two shapes, as the real CLI: a bare address for one component (so `URL=$(...)` works)
     # and the whole mapping under --output json. Answering JSON for both let a

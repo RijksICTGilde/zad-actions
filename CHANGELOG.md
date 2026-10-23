@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `deploy`: input `fail-on-warnings` (default `false`). Operations Manager can accept a rollout and still report that components are unhealthy, for instance when the registry could not deliver an image. zad-cli prints that as a warning on stderr and exits 0, so the step went green on a deployment that never came up, and the failure surfaced later in whatever depended on it. With `fail-on-warnings: 'true'` the action passes `--strict` and fails the step, with each warning's headline, summary, details and next steps as an error annotation. When the rollout is handed over to another task, the action reads that task's final result itself, since `zad task wait` does not surface warnings, and reports it with the same log lines and suggestions a direct rollout shows; failures the result names for another deployment do not count
+- `deploy`: without `fail-on-warnings`, those warnings become warning annotations instead of plain log lines, so they show up in the run summary
+
 ## [4.3.2] - 2026-10-08
 
 ### Fixed

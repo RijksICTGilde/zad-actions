@@ -702,6 +702,209 @@ jobs:
           # The result does not carry the count, so the project is the right place to ask.
           grep -q 'project pending' "$ZAD_STUB_LOG" || { echo "::error::the count was never asked for"; exit 1; }
 
+      # The CLI's own shape: a plain-text line, then the warnings object pretty-printed on
+      # stderr. The text line is what a parser that hands all of stderr to jq trips over.
+      - name: A rollout that succeeded with an unhealthy component
+        run: |
+          {
+            echo 'ZAD_STUB_CREATE={"status":"completed","deployment":"pr123"}'
+            echo 'ZAD_STUB_CREATE_STDERR<<EOF'
+            echo "Deployment 'pr123' created/updated in project 'testproject'."
+            cat <<'JSON'
+          {
+            "warnings": [
+              {
+                "fault": "UserApp",
+                "headline": "The operation succeeded, but some components are unhealthy.",
+                "details": [
+                  "web (image_pull): registry did not deliver the image"
+                ],
+                "next_steps": [
+                  "Inspect the deployment."
+                ]
+              }
+            ]
+          }
+          JSON
+            echo 'EOF'
+            echo 'ZAD_STUB_TASK_WAIT='
+            echo 'ZAD_STUB_TASK_WAIT_1='
+            echo 'ZAD_STUB_TASK_WAIT_2='
+            echo 'ZAD_STUB_TASK_WAIT_EXIT_1='
+            echo 'ZAD_STUB_PENDING={"count":0}'
+            echo 'ZAD_STUB_PENDING_EXIT='
+            echo 'ZAD_STUB_URLS={"web":"https://web.example"}'
+            echo "ZAD_STUB_STATE=$RUNNER_TEMP/warnings-1.calls"
+            echo "ZAD_STUB_LOG=$RUNNER_TEMP/warnings-1.log"
+          } >> "$GITHUB_ENV"
+
+      - name: Warnings fail the step when asked to
+        id: warnings-strict
+        continue-on-error: true
+        uses: ./deploy
+        with:
+          api-key: stub
+          skip-bot-prs: 'false'
+          project-id: testproject
+          deployment-name: pr123
+          component: web
+          image: ghcr.io/o/web:pr-123
+          fail-on-warnings: 'true'
+
+      - name: An unhealthy rollout is not a deploy under fail-on-warnings
+        env:
+          OUTCOME: ${{ steps.warnings-strict.outcome }}
+          URL: ${{ steps.warnings-strict.outputs.url }}
+        run: |
+          cat "$ZAD_STUB_LOG"
+          [ "$OUTCOME" = "failure" ] || { echo "::error::expected the step to fail, outcome was '$OUTCOME'"; exit 1; }
+          [ -z "$URL" ] || { echo "::error::a url was published for an unhealthy rollout: '$URL'"; exit 1; }
+          grep -q -- '--strict' "$ZAD_STUB_LOG" || { echo "::error::--strict was not passed to the CLI"; exit 1; }
+
+      - name: Same rollout, default inputs
+        run: echo "ZAD_STUB_LOG=$RUNNER_TEMP/warnings-2.log" >> "$GITHUB_ENV"
+
+      - name: Without fail-on-warnings the same answer is a success
+        id: warnings-default
+        uses: ./deploy
+        with:
+          api-key: stub
+          skip-bot-prs: 'false'
+          project-id: testproject
+          deployment-name: pr123
+          component: web
+          image: ghcr.io/o/web:pr-123
+
+      - name: The default leaves existing callers as they were
+        env:
+          URL: ${{ steps.warnings-default.outputs.url }}
+        run: |
+          # No continue-on-error above: a default that failed on warnings would have broken
+          # every caller that never asked for it, and stopped the job before this step.
+          [ "$URL" = "https://web.example" ] || { echo "::error::expected the web url, got '$URL'"; exit 1; }
+          if grep -q -- '--strict' "$ZAD_STUB_LOG"; then
+            echo "::error::--strict was passed without fail-on-warnings"
+            exit 1
+          fi
+
+      - name: A value that is not a boolean
+        id: warnings-typo
+        continue-on-error: true
+        uses: ./deploy
+        with:
+          api-key: stub
+          skip-bot-prs: 'false'
+          project-id: testproject
+          deployment-name: pr123
+          component: web
+          image: ghcr.io/o/web:pr-123
+          fail-on-warnings: 'True'
+
+      - name: A typo must not quietly mean false
+        env:
+          OUTCOME: ${{ steps.warnings-typo.outcome }}
+        run: |
+          [ "$OUTCOME" = "failure" ] || { echo "::error::expected the step to fail, outcome was '$OUTCOME'"; exit 1; }
+      # `zad task wait` never surfaces warnings, so --strict stops at the create. The task
+      # that took over is read by the action itself; only its own deployment's failures count.
+      - name: A hand-over that ends with an unhealthy component
+        run: |
+          {
+            echo 'ZAD_STUB_CREATE={"status":"superseded","superseded_by":{"task_id":"task-kkk","task_type":"refresh_project"}}'
+            echo 'ZAD_STUB_CREATE_STDERR='
+            FAILURE='{"component":"web","deployment":"pr123","failure_type":"image_pull",'
+            FAILURE+='"message":"Back-off pulling image","title":"registry did not deliver the image"}'
+            echo "ZAD_STUB_TASK_WAIT={\"status\":\"completed\",\"processing\":{\"status\":\"completed\",\"component_failures\":[$FAILURE]}}"
+            echo 'ZAD_STUB_TASK_WAIT_1='
+            echo 'ZAD_STUB_TASK_WAIT_2='
+            echo 'ZAD_STUB_TASK_WAIT_EXIT_1='
+            echo 'ZAD_STUB_PENDING={"count":0}'
+            echo 'ZAD_STUB_PENDING_EXIT='
+            echo 'ZAD_STUB_URLS={"web":"https://web.example"}'
+            echo "ZAD_STUB_STATE=$RUNNER_TEMP/handover-warnings-1.calls"
+            echo "ZAD_STUB_LOG=$RUNNER_TEMP/handover-warnings-1.log"
+          } >> "$GITHUB_ENV"
+
+      - name: Warnings at the end of a hand-over fail the step when asked to
+        id: handover-warnings-strict
+        continue-on-error: true
+        uses: ./deploy
+        with:
+          api-key: stub
+          skip-bot-prs: 'false'
+          project-id: testproject
+          deployment-name: pr123
+          component: web
+          image: ghcr.io/o/web:pr-123
+          fail-on-warnings: 'true'
+
+      - name: A hand-over is no way around fail-on-warnings
+        env:
+          OUTCOME: ${{ steps.handover-warnings-strict.outcome }}
+          URL: ${{ steps.handover-warnings-strict.outputs.url }}
+        run: |
+          cat "$ZAD_STUB_LOG"
+          [ "$OUTCOME" = "failure" ] || { echo "::error::expected the step to fail, outcome was '$OUTCOME'"; exit 1; }
+          [ -z "$URL" ] || { echo "::error::a url was published for an unhealthy rollout: '$URL'"; exit 1; }
+          grep -q 'task wait task-kkk' "$ZAD_STUB_LOG" || { echo "::error::the task that took over was never waited for"; exit 1; }
+          if grep -q 'deployment url' "$ZAD_STUB_LOG"; then
+            echo "::error::the action asked for addresses after an unhealthy hand-over"
+            exit 1
+          fi
+
+      - name: Same hand-over, default inputs
+        run: |
+          {
+            echo "ZAD_STUB_STATE=$RUNNER_TEMP/handover-warnings-2.calls"
+            echo "ZAD_STUB_LOG=$RUNNER_TEMP/handover-warnings-2.log"
+          } >> "$GITHUB_ENV"
+
+      - name: Without fail-on-warnings the hand-over is a success
+        id: handover-warnings-default
+        uses: ./deploy
+        with:
+          api-key: stub
+          skip-bot-prs: 'false'
+          project-id: testproject
+          deployment-name: pr123
+          component: web
+          image: ghcr.io/o/web:pr-123
+
+      - name: The default still publishes the address after a hand-over
+        env:
+          URL: ${{ steps.handover-warnings-default.outputs.url }}
+        run: |
+          [ "$URL" = "https://web.example" ] || { echo "::error::expected the web url, got '$URL'"; exit 1; }
+
+      - name: A hand-over whose failures are another deployment's
+        run: |
+          {
+            FAILURE='{"component":"web","deployment":"test","failure_type":"image_pull","message":"Back-off pulling image"}'
+            echo "ZAD_STUB_TASK_WAIT={\"status\":\"partial\",\"processing\":{\"status\":\"completed\",\"component_failures\":[$FAILURE]}}"
+            echo "ZAD_STUB_STATE=$RUNNER_TEMP/handover-warnings-3.calls"
+            echo "ZAD_STUB_LOG=$RUNNER_TEMP/handover-warnings-3.log"
+          } >> "$GITHUB_ENV"
+
+      - name: A neighbour's failure must not fail this rollout
+        id: handover-warnings-neighbour
+        uses: ./deploy
+        with:
+          api-key: stub
+          skip-bot-prs: 'false'
+          project-id: testproject
+          deployment-name: pr123
+          component: web
+          image: ghcr.io/o/web:pr-123
+          fail-on-warnings: 'true'
+
+      - name: The rollout of pr123 itself was healthy
+        env:
+          URL: ${{ steps.handover-warnings-neighbour.outputs.url }}
+        run: |
+          # No continue-on-error above: a project-wide task that took over reports every
+          # deployment it touched, and failing on test's image would fail pr123 for nothing.
+          [ "$URL" = "https://web.example" ] || { echo "::error::expected the web url, got '$URL'"; exit 1; }
+
   cleanup:
     name: cleanup
     runs-on: ubuntu-latest
@@ -1011,6 +1214,82 @@ jobs:
           check "output that is not JSON"  'zadctl: command not found'            ""
           check "nothing at all"           ''                                     ""
 
+      - name: A platform text that could forge a log line stays inside its annotation
+        run: |
+          source scripts/zad-common.sh
+          # Kubelet messages reach these annotations verbatim. A raw newline in one would end
+          # the annotation and run the remainder as a workflow command of its own.
+          WARNINGS=$(jq -nc '[{
+            headline: "unhealthy\n::error::forged by a headline",
+            details: ["web (image_pull): 100% gone\r\n::add-mask::forged by a detail"],
+            next_steps: ["Inspect\n::warning::forged by a next step"]
+          }]')
+
+          OUT=$(report_zad_warnings "Deployment" "$WARNINGS" error)
+          echo "$OUT"
+
+          [ "$(echo "$OUT" | wc -l)" -eq 3 ] || { echo "::error::expected three annotations, one per text"; exit 1; }
+          if echo "$OUT" | grep -q '^::\(add-mask\|warning\)::\|^::error::forged'; then
+            echo "::error::a platform text started a workflow command of its own"
+            exit 1
+          fi
+          echo "$OUT" | grep -qF '100%25 gone%0D%0A::add-mask::' || { echo "::error::the detail was not encoded as command data"; exit 1; }
+
+      - name: The result a hand-over ends in is judged for this deployment only
+        run: |
+          source scripts/zad-common.sh
+          # Mirrors degraded_diagnoses in zad-cli, which `task wait` never runs. A project-wide
+          # task reports every deployment it touched; another one's failure is not this rollout's.
+          own='{"component":"web","deployment":"pr123","failure_type":"image_pull","message":"raw","title":"no image"}'
+          other='{"component":"web","deployment":"test","failure_type":"image_pull","message":"raw"}'
+          bare='{"component":"web","failure_type":"crash","message":"boom"}'
+          check() {
+            local label="$1" doc="$2" want="$3" got
+            got=$(task_result_warnings "$doc" pr123 | jq -r 'map(.headline) | join(" | ")')
+            [ "$got" = "$want" ] || { echo "::error::$label: expected '$want', got '$got'"; exit 1; }
+          }
+          unhealthy="The operation succeeded, but some components are unhealthy."
+          check "a clean result" '{"status":"completed"}' ""
+          check "its own failure" "{\"processing\":{\"component_failures\":[$own]}}" "$unhealthy"
+          check "a failure naming no one" "{\"processing\":{\"component_failures\":[$bare]}}" "$unhealthy"
+          check "only another's failure" "{\"status\":\"partial\",\"processing\":{\"component_failures\":[$other]}}" ""
+          check "own and another's" "{\"processing\":{\"component_failures\":[$other,$own]}}" "$unhealthy"
+          check "warnings" '{"status":"completed","warnings":["w"]}' "The operation succeeded with warnings."
+          check "a degraded status" '{"status":"Degraded"}' "The operation finished with status Degraded."
+          check "processing that is null" '{"processing":null}' ""
+          check "an array" '[{"status":"partial"}]' ""
+          check "output that is not JSON" 'zadctl: command not found' ""
+          DETAIL=$(task_result_warnings "{\"processing\":{\"component_failures\":[$own]}}" pr123 | jq -r '.[0].details[0]')
+          [ "$DETAIL" = "web (image_pull): no image" ] ||
+            { echo "::error::the translated title must be preferred over the raw message, got '$DETAIL'"; exit 1; }
+
+          # What a direct create shows, a hand-over shows too: log lines and suggestions.
+          rich=$(jq -nc '{component: "web", deployment: "pr123", failure_type: "crash", message: "boom",
+            logs: ["l1", "l2", "l3", "l4", "l5", "l6"], suggestion: "Check the start command"}')
+          RICH=$(task_result_warnings "{\"processing\":{\"component_failures\":[$rich,$rich]}}" pr123)
+          [ "$(echo "$RICH" | jq '.[0].details | map(select(startswith("    "))) | length')" -eq 10 ] ||
+            { echo "::error::expected the first five log lines of each failure"; exit 1; }
+          [ "$(echo "$RICH" | jq -r '.[0].next_steps[0]')" = "Check the start command" ] ||
+            { echo "::error::the platform suggestion must be the first next step"; exit 1; }
+          [ "$(echo "$RICH" | jq '.[0].next_steps | length')" -eq 2 ] ||
+            { echo "::error::a suggestion shared by two failures must be listed once"; exit 1; }
+          SUMMARY=$(task_result_warnings '{"status":"partial","message":"2 of 3 rolled out"}' pr123 | jq -r '.[0].summary')
+          [ "$SUMMARY" = "2 of 3 rolled out" ] ||
+            { echo "::error::a partial status must carry its message as the summary, got '$SUMMARY'"; exit 1; }
+
+      - name: A warning's summary reaches its annotation
+        run: |
+          source scripts/zad-common.sh
+          # Where the CLI says why an approval was refused; the headline alone does not.
+          WARNINGS=$(jq -nc '[{headline: "Refused: domain - app.example.nl", summary: "Not yours\n::error::forged", details: [], next_steps: []}]')
+          OUT=$(report_zad_warnings "Deployment" "$WARNINGS" error)
+          echo "$OUT"
+          [ "$(echo "$OUT" | wc -l)" -eq 2 ] || { echo "::error::expected headline and summary"; exit 1; }
+          echo "$OUT" | grep -qxF '::error::Not yours%0A::error::forged' ||
+            { echo "::error::the summary is missing or not encoded as command data"; exit 1; }
+          NOSUM=$(report_zad_warnings "Deployment" '[{"headline":"h","summary":null}]' warning)
+          [ "$(echo "$NOSUM" | wc -l)" -eq 1 ] || { echo "::error::a null summary must add no line"; exit 1; }
+
   deploy-log:
     name: deploy-log
     runs-on: ubuntu-latest
@@ -1066,7 +1345,7 @@ jobs:
           export ZAD_API_KEY="stub" ZAD_API_URL="https://zad.example/api" ZAD_PROJECT_ID="testproject"
           export ZAD_MAX_RETRIES="3" ZAD_RETRY_DELAY="2" ZAD_TASK_TIMEOUT="300" ZAD_TASK_POLL_INTERVAL="3"
           export DEPLOYMENT_NAME="pr123" COMPONENT="web" IMAGE="ghcr.io/o/web:pr-123"
-          export COMPONENTS="" CLONE_FROM="" FORCE_CLONE="false"
+          export COMPONENTS="" CLONE_FROM="" FORCE_CLONE="false" FAIL_ON_WARNINGS="false"
           export PATH_SUFFIX="" DOMAIN_FORMAT="" SUBDOMAIN="" BASE_DOMAIN="" NO_COLOR="1"
           exec bash --noprofile --norc -e -o pipefail "$RUNNER_TEMP/deploy-step.sh" 2>&1
           SH

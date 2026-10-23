@@ -107,6 +107,99 @@ validate_integer() {
   fi
 }
 
+# Validate that a value is exactly "true" or "false". A typo must not quietly mean "false".
+# Usage: validate_boolean <name> <value>
+validate_boolean() {
+  local name="$1" value="$2"
+  case "$value" in
+    true | false) ;;
+    *)
+      echo "Error: $name must be 'true' or 'false'"
+      exit 1
+      ;;
+  esac
+}
+
+# Print the warnings zad-cli wrote to stderr as one JSON array, or [] when there are none.
+#
+# Usage: zad_warnings <stderr-file>
+#
+# In --output json mode a degraded-but-successful operation prints {"warnings": [...]} to
+# stderr with json.dumps(indent=2), so the object starts and ends with a brace on a line of
+# its own. Other stderr lines (progress, "created/updated") are plain text, so only those
+# blocks are handed to jq. Anything unreadable counts as no warnings: the caller then falls
+# back to its usual error path rather than failing on a parse.
+zad_warnings() {
+  local file="$1" warnings
+  warnings=$(sed -n '/^{$/,/^}$/p' "$file" | jq -cs 'map(.warnings? // empty) | add // []' 2>/dev/null) ||
+    warnings=""
+  echo "${warnings:-[]}"
+}
+
+# Print what a task result that took over a rollout says about its health, as the same
+# JSON array zad_warnings prints, or [] when it reports nothing.
+#
+# Usage: task_result_warnings <task-result-json> <deployment-name>
+#
+# `zad task wait` renders the result but never surfaces warnings, so --strict does not
+# reach the end of a hand-over chain; this reads it the way the CLI's degraded_diagnoses
+# reads a create result: component failures, `warnings`, or a partial/degraded status.
+# The task that took over can be project-wide, so failures that name another deployment
+# are left out: they are not this rollout's, and would fail it for a neighbour's image.
+task_result_warnings() {
+  local result="$1" deployment="$2" warnings
+  warnings=$(echo "$result" | jq -c --arg d "$deployment" '
+    if type != "object" then [] else
+      ([.processing.component_failures? // [] | .[]? | select(type == "object")]) as $all
+      | [$all[] | select((.deployment // "") == "" or .deployment == $d)] as $own
+      | [.warnings? // [] | .[]? | if type == "string" then . else tojson end] as $w
+      # As diagnose_task_failure: each failure with the first five lines of its logs, and
+      # the platform suggestions as next steps, so a hand-over says what a direct create says.
+      | (if ($own | length) > 0 then [{
+            headline: "The operation succeeded, but some components are unhealthy.",
+            details: [$own[] | "\(.component // "?") (\(.failure_type // "?")): \(if (.title // "") != "" then .title else (.message // "") end)",
+              ((.logs? // []) | if type == "array" then .[:5][] | "    \(.)" else empty end)],
+            next_steps: (([$own[] | .suggestion // "" | select(. != "")] | unique)
+              + ["Inspect the deployment with: zad deployment describe \($d)"])
+          }] else [] end)
+      + (if ($w | length) > 0 then [{
+            headline: "The operation succeeded with warnings.",
+            details: $w,
+            next_steps: ["Review the warnings above; they usually point at your configuration."]
+          }] else [] end)
+      + (if ((.status // "") | ascii_downcase) as $s
+            | ($s == "partial" or $s == "degraded") and ($all | length) == 0 and ($w | length) == 0
+         then [{
+            headline: "The operation finished with status \(.status).",
+            summary: .message,
+            next_steps: ["Inspect the deployment with: zad deployment describe \($d)"]
+          }] else [] end)
+    end' 2>/dev/null) || warnings=""
+  echo "${warnings:-[]}"
+}
+
+# Emit one annotation per zad-cli warning, with its summary, details and next steps.
+#
+# Usage: report_zad_warnings <operation> <warnings-json-array> <error|warning>
+#
+# The summary is where the CLI puts the reason for a refused approval or a partial status;
+# the headline alone ("Refused: domain") does not say why.
+#
+# The texts come from the platform, kubelet messages included, so each is encoded the way
+# workflow-command data must be: a raw newline would end the annotation and let the rest
+# of the text run as a command of its own (::add-mask::, a forged ::error::).
+report_zad_warnings() {
+  local operation="$1" warnings="$2" level="$3"
+  [ "$warnings" = "[]" ] && return 0
+  echo "$warnings" | jq -r --arg op "$operation" --arg lvl "$level" '
+    def data: tostring | gsub("%"; "%25") | gsub("\r"; "%0D") | gsub("\n"; "%0A");
+    .[] |
+    "::\($lvl)::\($op | data) reported: \(.headline // "a warning" | data)",
+    (.summary // empty | select(. != "") | "::\($lvl)::\(data)"),
+    (.details[]? |"::\($lvl)::Details: \(data)"),
+    (.next_steps[]? | "::\($lvl)::Next step: \(data)")'
+}
+
 # Parse zad-cli JSON error output and emit GitHub Actions annotations.
 #
 # Usage: report_zad_error <operation> <cli_stdout> <project-id>

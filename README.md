@@ -234,6 +234,23 @@ These actions use [zad-cli](https://github.com/RijksICTGilde/zad-cli) to interac
 
 - **API Docs**: `https://operations-manager.rig.prd1.gn2.quattro.rijksapps.nl/docs`
 
+### Other clusters
+
+The actions use the production cluster by default. To use another ZAD cluster, such as staging at `https://zad.staging.rijksapp.dev`, set `api-base-url` to that cluster's API (its host followed by `/api`):
+
+```yaml
+- uses: RijksICTGilde/zad-actions/deploy@v4
+  with:
+    api-key: ${{ secrets.ZAD_STAGING_API_KEY }}
+    project-id: my-project
+    deployment-name: pr-${{ github.event.pull_request.number }}
+    component: web
+    image: ghcr.io/org/app:pr-${{ github.event.pull_request.number }}
+    api-base-url: https://zad.staging.rijksapp.dev/api
+```
+
+Set the same `api-base-url` on `cleanup` and `scheduled-cleanup`, or they look for the deployment on production. API keys and projects exist per cluster: create the key in the Operations Manager of the cluster you deploy to.
+
 ### URL Pattern
 
 Deployed applications are accessible at:

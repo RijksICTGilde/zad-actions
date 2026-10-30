@@ -56,10 +56,14 @@ inputs:
     description: 'GitHub token for environment deletion (needs repo admin permission, typically GITHUB_ADMIN_TOKEN secret)'
     required: false
     default: ''
-  api-base-url:
-    description: 'ZAD Operations Manager API base URL'
+  cluster:
+    description: 'ZAD cluster to use: production, staging, or the host of any ZAD cluster (e.g. zad.staging.rijksapp.dev). An https URL to that host also works.'
     required: false
-    default: 'https://operations-manager.rig.prd1.gn2.quattro.rijksapps.nl/api'
+    default: 'production'
+  api-base-url:
+    description: 'Deprecated, use cluster. Full ZAD Operations Manager API URL; overrides cluster when set. Will be removed in v5.'
+    required: false
+    default: ''
   task-timeout:
     description: 'Maximum time in seconds to wait for async task completion'
     required: false
@@ -159,6 +163,7 @@ runs:
       env:
         ZAD_API_KEY: ${{ inputs.api-key }}
         ZAD_API_URL: ${{ inputs.api-base-url }}
+        ZAD_CLUSTER: ${{ inputs.cluster }}
         ZAD_PROJECT_ID: ${{ inputs.project-id }}
         ZAD_MAX_RETRIES: ${{ inputs.max-retries }}
         ZAD_RETRY_DELAY: ${{ inputs.retry-delay }}
@@ -172,6 +177,7 @@ runs:
 
         # Validate inputs FIRST (before logging, to prevent injection)
         validate_input "project-id" "$ZAD_PROJECT_ID"
+        resolve_zad_api_url
         validate_input "deployment-name" "$DEPLOYMENT_NAME"
         validate_integer "max-retries" "$ZAD_MAX_RETRIES"
         validate_integer "retry-delay" "$ZAD_RETRY_DELAY"

@@ -39,11 +39,28 @@ case "${1:-}${2:+ $2}" in
   "version"|"--version")
     echo "zadctl 0.12.0-stub" ;;
   "deployment create")
+    # Record which API the action pointed the CLI at, to check cluster selection.
+    if [ -n "${ZAD_STUB_API_LOG:-}" ]; then
+      printf '%s\n' "${ZAD_API_URL:-}" >> "$ZAD_STUB_API_LOG"
+    fi
     # The real CLI reads the manifest from stdin when given --file -.
     cat >/dev/null 2>&1 || true
     pretty "$ZAD_STUB_CREATE" ;;
   "deployment url")
-    pretty "$ZAD_STUB_URLS" ;;
+    # With --component the real CLI prints that component's bare address.
+    COMP=""
+    while [ $# -gt 0 ]; do
+      [ "$1" = "--component" ] && { COMP="${2:-}"; break; }
+      shift
+    done
+    if [ -n "$COMP" ]; then
+      printf '%s' "$ZAD_STUB_URLS" | python3 -c 'import json,sys; print(json.load(sys.stdin)[sys.argv[1]])' "$COMP" 2>/dev/null || {
+        echo "Component '$COMP' has no public address" >&2
+        exit 1
+      }
+    else
+      pretty "$ZAD_STUB_URLS"
+    fi ;;
   "deployment delete")
     pretty "$ZAD_STUB_DELETE" ;;
   *)

@@ -75,6 +75,66 @@ jobs:
         run: |
           [ "$URL" = "https://api.example" ] || { echo "::error::expected the api url, got '$URL'"; exit 1; }
 
+      - name: Log the API URL the CLI is given
+        run: echo "ZAD_STUB_API_LOG=$RUNNER_TEMP/zad-api.log" >> "$GITHUB_ENV"
+
+      - name: Deploy to the default cluster
+        uses: ./deploy
+        with:
+          api-key: stub
+          project-id: testproject
+          deployment-name: pr123
+          component: api
+          image: ghcr.io/o/api:pr-123
+
+      - name: Deploy to the staging cluster
+        uses: ./deploy
+        with:
+          api-key: stub
+          project-id: testproject
+          deployment-name: pr123
+          component: api
+          image: ghcr.io/o/api:pr-123
+          cluster: staging
+
+      - name: Deploy to a cluster given as a URL
+        uses: ./deploy
+        with:
+          api-key: stub
+          project-id: testproject
+          deployment-name: pr123
+          component: api
+          image: ghcr.io/o/api:pr-123
+          cluster: https://ZAD.example.nl/
+
+      - name: Each deploy must reach its own cluster
+        run: |
+          echo "--- API URLs ---"; cat "$ZAD_STUB_API_LOG"
+          EXPECTED=$(printf '%s\n' \
+            https://operations-manager.rig.prd1.gn2.quattro.rijksapps.nl/api \
+            https://zad.staging.rijksapp.dev/api \
+            https://zad.example.nl/api)
+          [ "$(cat "$ZAD_STUB_API_LOG")" = "$EXPECTED" ] || { echo "::error::cluster did not select the expected API URL"; exit 1; }
+
+      - name: A page URL as cluster must stop before calling ZAD
+        id: badcluster
+        continue-on-error: true
+        uses: ./deploy
+        with:
+          api-key: stub
+          project-id: testproject
+          deployment-name: pr123
+          component: api
+          image: ghcr.io/o/api:pr-123
+          cluster: https://zad.staging.rijksapp.dev/introductie
+
+      - name: The bad cluster must have failed without a deploy
+        env:
+          OUTCOME: ${{ steps.badcluster.outcome }}
+        run: |
+          [ "$OUTCOME" = "failure" ] || { echo "::error::expected the deploy to fail, got '$OUTCOME'"; exit 1; }
+          [ "$(wc -l < "$ZAD_STUB_API_LOG")" -eq 3 ] || { echo "::error::the CLI was called despite an invalid cluster"; exit 1; }
+
   cleanup:
     name: cleanup
     runs-on: ubuntu-latest

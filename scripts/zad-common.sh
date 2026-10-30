@@ -97,6 +97,87 @@ validate_input() {
   fi
 }
 
+ZAD_PRODUCTION_HOST="operations-manager.rig.prd1.gn2.quattro.rijksapps.nl"
+ZAD_STAGING_HOST="zad.staging.rijksapp.dev"
+
+# Set ZAD_API_URL from ZAD_CLUSTER, or keep the one api-base-url gave.
+#
+# cluster takes an alias (production, staging), a host, or an https URL to that
+# host, optionally ending in /api. Every ZAD cluster serves the Operations Manager
+# API under /api, so the host alone is enough: a new cluster needs no new release.
+# Errors say what to write instead, because the person reading them is setting up
+# a workflow, not debugging this script.
+#
+# Also sets ZAD_CLUSTER_NAME (the alias, or else the host) so error messages can
+# name the cluster in the terms the workflow used.
+#
+# Usage: resolve_zad_api_url
+resolve_zad_api_url() {
+  local value host path
+
+  if [ -n "${ZAD_API_URL:-}" ]; then
+    if ! [[ "$ZAD_API_URL" =~ ^https?://[a-zA-Z0-9._:/-]+$ ]]; then
+      echo "::error::api-base-url is not a valid URL. Use 'cluster' instead, e.g. 'cluster: ${ZAD_STAGING_HOST}'."
+      exit 1
+    fi
+    if [ -n "${ZAD_CLUSTER:-}" ] && [ "$ZAD_CLUSTER" != "production" ]; then
+      echo "::warning::Both cluster and api-base-url are set; api-base-url wins. Remove api-base-url."
+    fi
+    host="${ZAD_API_URL#*://}"
+    host="${host%%/*}"
+    echo "::warning::api-base-url is deprecated and will be removed in v5. Replace it with 'cluster: ${host}'."
+    ZAD_CLUSTER_NAME="$host"
+    echo "Using ZAD API: $ZAD_API_URL"
+    export ZAD_API_URL ZAD_CLUSTER_NAME
+    return 0
+  fi
+
+  # Trim surrounding whitespace and ignore case: hostnames are case-insensitive.
+  value="${ZAD_CLUSTER:-production}"
+  value="${value#"${value%%[![:space:]]*}"}"
+  value="${value%"${value##*[![:space:]]}"}"
+  value=$(printf '%s' "$value" | tr '[:upper:]' '[:lower:]')
+
+  case "$value" in
+    production|prod) host="$ZAD_PRODUCTION_HOST"; ZAD_CLUSTER_NAME="production" ;;
+    staging) host="$ZAD_STAGING_HOST"; ZAD_CLUSTER_NAME="staging" ;;
+    *)
+      if [[ "$value" == http://* ]]; then
+        echo "::error::cluster must use https, not http: the API key is sent with every request."
+        echo "::error::Write it as 'cluster: ${value#http://}' and https is used automatically."
+        exit 1
+      fi
+      value="${value#https://}"
+      host="${value%%/*}"
+      path="${value#"$host"}"
+
+      # Only echo the value back once it is known to be harmless: anything else
+      # could carry a workflow command into the log.
+      if ! [[ "$host" =~ ^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$ ]] || [ "${#host}" -gt 253 ]; then
+        if [[ "$value" =~ ^[a-z0-9-]+$ ]]; then
+          echo "::error::Unknown cluster '$value'."
+        else
+          echo "::error::cluster is not a valid cluster name or host."
+        fi
+        echo "::error::Use 'production', 'staging', or the host of the ZAD cluster, e.g. 'cluster: ${ZAD_STAGING_HOST}'."
+        exit 1
+      fi
+      case "$path" in
+        ""|/|/api|/api/) ;;
+        *)
+          echo "::error::cluster should name the cluster, not a page on it. Use 'cluster: ${host}'."
+          exit 1
+          ;;
+      esac
+      ZAD_CLUSTER_NAME="$host"
+      ;;
+  esac
+
+  ZAD_API_URL="https://${host}/api"
+  echo "Using ZAD cluster: $ZAD_CLUSTER_NAME (API: $ZAD_API_URL)"
+  export ZAD_API_URL ZAD_CLUSTER_NAME
+}
+
 # Validate that a value is a non-negative integer.
 # Usage: validate_integer <name> <value>
 validate_integer() {
@@ -142,18 +223,34 @@ report_zad_error() {
         echo "::error::${operation} failed with no HTTP status code"
         echo "::error::This could be a network issue, timeout, or CLI error"
       fi
+      if [ -n "${ZAD_CLUSTER_NAME:-}" ]; then
+        echo "::error::Could not reach ZAD cluster '$ZAD_CLUSTER_NAME' ($ZAD_API_URL). Check the cluster input."
+      fi
       ;;
     401)
-      echo "::error::${operation} failed: Authentication failed (HTTP 401)"
+      if [ -n "${ZAD_CLUSTER_NAME:-}" ]; then
+        echo "::error::${operation} failed: your API key is not known on ZAD cluster '$ZAD_CLUSTER_NAME' (HTTP 401)"
+        echo "::error::API keys are per cluster. Create one in the Operations Manager of '$ZAD_CLUSTER_NAME', or check the cluster input"
+      else
+        echo "::error::${operation} failed: Authentication failed (HTTP 401)"
+      fi
       echo "::error::Please verify your ZAD_API_KEY secret is correct and not expired"
       ;;
     403)
       echo "::error::${operation} failed: Access denied (HTTP 403)"
-      echo "::error::Your API key may not have permission for project '$project_id'"
+      if [ -n "${ZAD_CLUSTER_NAME:-}" ]; then
+        echo "::error::Your API key may not have permission for project '$project_id' on ZAD cluster '$ZAD_CLUSTER_NAME'"
+      else
+        echo "::error::Your API key may not have permission for project '$project_id'"
+      fi
       ;;
     404)
       echo "::error::${operation} failed: Not found (HTTP 404)"
-      echo "::error::Please verify project-id '$project_id' exists in ZAD"
+      if [ -n "${ZAD_CLUSTER_NAME:-}" ]; then
+        echo "::error::Please verify project-id '$project_id' exists on ZAD cluster '$ZAD_CLUSTER_NAME'"
+      else
+        echo "::error::Please verify project-id '$project_id' exists in ZAD"
+      fi
       ;;
     *)
       if [ "$status_code" -ge 500 ] 2>/dev/null; then

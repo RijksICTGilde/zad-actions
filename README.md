@@ -234,6 +234,33 @@ These actions use [zad-cli](https://github.com/RijksICTGilde/zad-cli) to interac
 
 - **API Docs**: `https://operations-manager.rig.prd1.gn2.quattro.rijksapps.nl/docs`
 
+### Clusters
+
+All three actions use the production cluster by default. Pick another one with the `cluster` input:
+
+| Value | Cluster |
+|-------|---------|
+| `production` (default) | `operations-manager.rig.prd1.gn2.quattro.rijksapps.nl` |
+| `staging` | `zad.staging.rijksapp.dev` |
+| any host, e.g. `zad.example.nl` | that cluster |
+
+A host can also be written as an https URL, with or without `/api`: `https://zad.staging.rijksapp.dev`, `https://zad.staging.rijksapp.dev/api` and `zad.staging.rijksapp.dev` all mean the same thing. The action checks the value before calling ZAD and says what to write instead when it is off, for example when it points at a page (`/introductie`) or uses `http`.
+
+```yaml
+- uses: RijksICTGilde/zad-actions/deploy@v4
+  with:
+    api-key: ${{ secrets.ZAD_STAGING_API_KEY }}
+    project-id: my-project
+    deployment-name: pr-${{ github.event.pull_request.number }}
+    component: web
+    image: ghcr.io/org/app:pr-${{ github.event.pull_request.number }}
+    cluster: staging
+```
+
+API keys and projects exist per cluster: a production key is not known on staging. When a key does not match the cluster, the action fails with `your API key is not known on ZAD cluster '<cluster>'`.
+
+`api-base-url` still works but is deprecated and logs a warning; replace it with `cluster: <host>`.
+
 ### URL Pattern
 
 Deployed applications are accessible at:

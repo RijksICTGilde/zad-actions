@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `deploy`, `cleanup` and `scheduled-cleanup`: new `cluster` input to pick the ZAD cluster. It takes `production` (default), `staging` (`zad.staging.rijksapp.dev`), or the host of any other ZAD cluster, so a new cluster needs no new release. An https URL to the host, with or without `/api`, is accepted too. Existing workflows keep deploying to production
+- The value is checked before any call to ZAD, and a wrong one fails with what to write instead (unknown name, `http` instead of `https`, a URL to a page instead of the cluster)
+- Error messages name the cluster: a 401 reads `your API key is not known on ZAD cluster '<cluster>'`, and 403, 404 and network failures say which cluster they were talking to
+
+### Deprecated
+- `api-base-url`: use `cluster` instead. It still works and still overrides `cluster`, but logs a warning with the `cluster` value to switch to. It will be removed in v5
+
 ## [4.2.0] - 2026-09-11
 
 ### Upgrading

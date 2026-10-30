@@ -18,7 +18,8 @@ Removes a ZAD deployment and optionally cleans up associated GitHub resources (e
 | `containers` | No | `''` | JSON array of containers to delete: `[{"org": "...", "name": "...", "tag": "..."}]`. Takes precedence over `container-org`/`container-name`/`container-tag`. |
 | `github-token` | No | `github.token` | GitHub token for deployments/containers/PR (defaults to automatic token) |
 | `github-admin-token` | No | `''` | GitHub token for environment deletion (needs repo admin permission) |
-| `api-base-url` | No | `https://operations-manager.rig.prd1.gn2.quattro.rijksapps.nl/api` | ZAD Operations Manager API base URL |
+| `cluster` | No | `production` | ZAD cluster to use: `production`, `staging`, or the host of any ZAD cluster (e.g. `zad.staging.rijksapp.dev`). See [Clusters](../README.md#clusters) |
+| `api-base-url` | No | `''` | **Deprecated**, use `cluster`. Full API URL; overrides `cluster` when set. Removed in v5 |
 | `delete-pr-comment` | No | `true` | Delete the deploy PR comment |
 | `comment-header` | No | `## 🚀 Preview Deployment` | Header of the deploy comment to find and delete |
 | `skip-bot-prs` | No | `true` | Skip cleanup for PRs created by bots (dependabot, renovate, pre-commit-ci, etc.) |

@@ -47,8 +47,8 @@ All three actions retry transient ZAD API errors (000, 429, 500-504) with expone
 
 | HTTP Code | Diagnosis | Retried? | Fix |
 |-----------|-----------|----------|-----|
-| `000` | Network problem — runner can't reach ZAD API | Yes | Check runner network, verify `api-base-url` is correct. Default: `https://operations-manager.rig.prd1.gn2.quattro.rijksapps.nl/api` |
-| `401` | API key invalid or expired | No | Regenerate `ZAD_API_KEY` in Operations Manager and update the repository secret |
+| `000` | Network problem — runner can't reach ZAD API | Yes | Check runner network, verify the `cluster` input (`production`, `staging` or a cluster host). The log line `Using ZAD cluster:` shows which API was used |
+| `401` | API key invalid, expired, or from another cluster | No | Keys are per cluster: check the `cluster` input matches where the key was made, then regenerate `ZAD_API_KEY` in that cluster's Operations Manager if needed |
 | `403` | API key lacks permission for this project | No | Verify the API key has access to the specified `project-id`. Request access via Operations Manager |
 | `404` | Project not found (deploy) / already deleted (cleanup) | No | Check `project-id` spelling. Verify project exists in ZAD Operations Manager |
 | `429` | Rate limited | Yes | Automatically retried. Increase `retry-delay` if persistent |

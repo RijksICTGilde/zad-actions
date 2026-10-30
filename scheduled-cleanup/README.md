@@ -19,7 +19,8 @@ Automatically finds and cleans up ZAD deployments for closed or merged PRs. Inte
 | `container-name` | No | `''` | Container package name |
 | `github-token` | No | `github.token` | GitHub token for API operations |
 | `github-admin-token` | No | `''` | GitHub token for environment deletion (needs repo admin permission) |
-| `api-base-url` | No | `https://operations-manager.rig.prd1.gn2.quattro.rijksapps.nl/api` | ZAD Operations Manager API base URL |
+| `cluster` | No | `production` | ZAD cluster to use: `production`, `staging`, or the host of any ZAD cluster (e.g. `zad.staging.rijksapp.dev`). See [Clusters](../README.md#clusters) |
+| `api-base-url` | No | `''` | **Deprecated**, use `cluster`. Full API URL; overrides `cluster` when set. Removed in v5 |
 | `max-retries` | No | `3` | Maximum number of retries for transient ZAD API errors (0 to disable) |
 | `retry-delay` | No | `2` | Initial retry delay in seconds (doubles each retry) |
 | `task-timeout` | No | `300` | Maximum time in seconds to wait for async task completion |

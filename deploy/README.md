@@ -14,7 +14,8 @@ Deploys a container image to ZAD Operations Manager.
 | `components` | No | `''` | JSON array of components: `[{"name": "web", "image": "ghcr.io/org/app:tag"}]`. Takes precedence over `component`/`image`. |
 | `clone-from` | No | `''` | Clone configuration from existing deployment |
 | `force-clone` | No | `false` | Force clone even if deployment already exists |
-| `api-base-url` | No | `https://operations-manager.rig.prd1.gn2.quattro.rijksapps.nl/api` | ZAD Operations Manager API base URL |
+| `cluster` | No | `production` | ZAD cluster to use: `production`, `staging`, or the host of any ZAD cluster (e.g. `zad.staging.rijksapp.dev`). See [Clusters](../README.md#clusters) |
+| `api-base-url` | No | `''` | **Deprecated**, use `cluster`. Full API URL; overrides `cluster` when set. Removed in v5 |
 | `comment-on-pr` | No | `false` | Post/update a comment on the PR with the deployment URL |
 | `github-token` | No | `github.token` | GitHub token for PR commenting (defaults to automatic token) |
 | `comment-header` | No | `## 🚀 Preview Deployment` | Custom header for the PR comment |

@@ -113,16 +113,20 @@ jobs:
 
 The `api-key` input takes an API token from the Operations Manager, stored as the `ZAD_API_KEY` repository secret. Tokens live on a project's **Team** tab, under **Leden en tokens**. A token belongs to a member of the project, a person or a service account, and may do what that member's roles allow. Changing the roles or removing the member applies to all of its tokens at once.
 
-For a pipeline:
+For a pipeline that deploys and cleans up PR environments:
 
-1. Add a service account to the project and give it a CI role. `Developer CI` updates deployments that are not on production and may create new ones, which is what PR previews need. `Ops CI` only replaces the image of a deployment, production included.
-2. Make a token for that service account and store it as `ZAD_API_KEY` in your repository secrets.
+1. Add a service account to the project and give it two roles: `Developer CI` and `Viewer`.
+2. Make a token for that service account and store it as `ZAD_API_KEY` in your repository secrets. Only an `Admin` of the project can make a token for a service account.
 
-Do not use a token of a human member: it carries every role that person has, `Admin` included. A token is valid for 90 days at most (30 by default), and a token without an expiry date does not exist, so plan to replace it. A 401 from a workflow that used to work usually means the token expired.
+`Developer CI` may create, update and delete deployments that are not on production, but it carries no read rights. The actions read back after every change: they wait on the task they started, read the deployment's URLs and check for changes that are not rolled out yet. Without `Viewer` those reads answer 403, and `deploy` fails even though the deployment went through.
 
-`Ops CI` may not read tasks. Seen on 5 November 2026 with zad-cli 0.12.0: with an `Ops CI` token, `zad deployment update-image` replaced the image, and then failed with HTTP 403 while waiting on the task, with a message that the roles do not grant `task.read` in the project. With zad-cli directly, pass `--no-wait` to skip that wait. These actions wait on their tasks and have no input to skip it, so with `Ops CI` expect that 403 even when the change went through.
+With `Developer CI`, a redeploy of an existing deployment with `domain-format`, `subdomain` or `base-domain` set answers 403: changing the host name of an existing deployment is reserved for `Ops`. Set those inputs only for the first deploy, or leave them out.
 
-Not verified: whether `Ops CI` covers the `deployment create` call that `deploy` makes, and which role may delete a deployment, which `cleanup` and `scheduled-cleanup` do. If one of those answers 403, check the service account's roles first.
+To deploy to production with `deploy`, use a separate service account with `Ops`, and keep its token in a GitHub environment secret of the production environment. `Ops CI` does not work with these actions: it only replaces the image of a deployment, a call these actions do not make. A deployment on production cannot be deleted from a pipeline, because that needs the 2-factor confirmation of a person.
+
+Do not use a token of a human member: it carries every role that person has, `Admin` included. Every token has an expiry date, 30 days by default. A token for a service account can be valid for 365 days at most, a personal token for 90. A 401 from a workflow that used to work usually means the token expired.
+
+An API key from before tokens existed was turned into a token of the service account `project-api`, with the roles `Admin` and `Ops`. It keeps working, but it may do everything in the project; replace it with a service account as above.
 
 ### GitHub Tokens
 

@@ -252,11 +252,11 @@ report_zad_error() {
     401)
       echo "::error::${operation} failed: Authentication failed (HTTP 401)"
       echo "::error::Please verify your ZAD_API_KEY secret is correct and not expired"
-      echo "::error::Tokens expire after 90 days at most; make a new one in the Operations Manager under the project's Team tab, Leden en tokens"
+      echo "::error::Every token has an expiry date; make a new one in the Operations Manager under the project's Team tab, Leden en tokens"
       ;;
     403)
       echo "::error::${operation} failed: Access denied (HTTP 403)"
-      echo "::error::The token's member may lack the role for this in project '$project_id'; roles are set under the project's Team tab, Leden en tokens"
+      echo "::error::The token's member may lack the role for this in project '$project_id'; a pipeline needs Developer CI and Viewer. Roles are set under the project's Team tab, Leden en tokens"
       ;;
     404)
       echo "::error::${operation} failed: Not found (HTTP 404)"

@@ -9,7 +9,7 @@ branding:
 
 inputs:
   api-key:
-    description: 'ZAD API key (ZAD_API_KEY secret)'
+    description: 'ZAD API token (ZAD_API_KEY secret)'
     required: true
   project-id:
     description: 'ZAD project identifier (e.g., regel-k4c)'

@@ -6,7 +6,7 @@ Deploys a container image to ZAD Operations Manager.
 
 | Name | Required | Default | Description |
 |------|----------|---------|-------------|
-| `api-key` | Yes | - | ZAD API key (`ZAD_API_KEY` secret) |
+| `api-key` | Yes | - | ZAD API token (`ZAD_API_KEY` secret) |
 | `project-id` | Yes | - | ZAD project identifier (e.g., `regel-k4c`) |
 | `deployment-name` | Yes | - | Name of the deployment (e.g., `pr-73`, `production`) |
 | `component` | No | `''` | Component reference (e.g., `editor`, `api`). Ignored when `components` is set. |
@@ -151,7 +151,7 @@ deploy:
 
 | Feature          | Required Permission       |
 |------------------|---------------------------|
-| Basic deployment | None (only ZAD API key)   |
+| Basic deployment | None (only ZAD API token) |
 | PR commenting    | `pull-requests: write`    |
 
 For PR commenting, ensure your job has the required permission (the token defaults to `github.token`):

@@ -34,7 +34,7 @@ install_zad_cli() {
     ZAD_TMP=$(mktemp -d)
     if curl -fsSL --retry 3 "${ZAD_BASE}/${ZAD_ASSET}" -o "${ZAD_TMP}/${ZAD_ASSET}" &&
        curl -fsSL --retry 3 "${ZAD_BASE}/SHA256SUMS" -o "${ZAD_TMP}/SHA256SUMS"; then
-      # Verified, not just downloaded: this binary is about to hold a project API key.
+      # Verified, not just downloaded: this binary is about to hold a ZAD API token.
       if command -v sha256sum >/dev/null 2>&1; then
         ZAD_SUMCHECK="sha256sum -c SHA256SUMS --ignore-missing"
       else
@@ -252,10 +252,11 @@ report_zad_error() {
     401)
       echo "::error::${operation} failed: Authentication failed (HTTP 401)"
       echo "::error::Please verify your ZAD_API_KEY secret is correct and not expired"
+      echo "::error::Tokens expire after 90 days at most; make a new one in the Operations Manager under the project's Team tab, Leden en tokens"
       ;;
     403)
       echo "::error::${operation} failed: Access denied (HTTP 403)"
-      echo "::error::Your API key may not have permission for project '$project_id'"
+      echo "::error::The token's member may lack the role for this in project '$project_id'; roles are set under the project's Team tab, Leden en tokens"
       ;;
     404)
       echo "::error::${operation} failed: Not found (HTTP 404)"

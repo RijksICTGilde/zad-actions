@@ -6,7 +6,7 @@ Removes a ZAD deployment and optionally cleans up associated GitHub resources (e
 
 | Name | Required | Default | Description |
 |------|----------|---------|-------------|
-| `api-key` | Yes | - | ZAD API key (`ZAD_API_KEY` secret) |
+| `api-key` | Yes | - | ZAD API token (`ZAD_API_KEY` secret) |
 | `project-id` | Yes | - | ZAD project identifier |
 | `deployment-name` | Yes | - | Name of the deployment to delete |
 | `delete-github-env` | No | `false` | Delete the GitHub environment (requires `github-admin-token`) |
@@ -145,7 +145,7 @@ permissions:
 
 | Operation | Token | Permission Required |
 |-----------|-------|---------------------|
-| Delete ZAD deployment | (API key only) | - |
+| Delete ZAD deployment | (ZAD API token only) | - |
 | Delete GitHub deployments | `github-token` | `deployments: write` |
 | Delete GitHub environment | `github-admin-token` | Repository admin access |
 | Delete container image | `github-token` | `packages: delete` |

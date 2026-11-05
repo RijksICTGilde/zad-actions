@@ -16,6 +16,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Documentation
 - README: how to deploy to another ZAD cluster, such as staging, with `api-base-url`
+- README, SECURITY.md, the action inputs and the skills describe ZAD API tokens as the Operations Manager has them now: a token belongs to a member of the project (a person or a service account), may do what that member's roles allow, is made on the project's **Team** tab under **Leden en tokens**, and is valid for 90 days at most. For CI they advise a service account with `Developer CI` or `Ops CI` instead of a personal token. The 401 and 403 errors from the actions point there too
+- `generate-workflow` uses `@v4`, the current major, instead of `@v3`; SECURITY.md pins the example to `@v4.4.0` and lists v4 as supported
 
 ### Internal
 - CI runs the zad-cli source install for real, with a `curl` stub that refuses release downloads

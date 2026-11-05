@@ -120,7 +120,9 @@ For a pipeline:
 
 Do not use a token of a human member: it carries every role that person has, `Admin` included. A token is valid for 90 days at most (30 by default), and a token without an expiry date does not exist, so plan to replace it. A 401 from a workflow that used to work usually means the token expired.
 
-The role descriptions do not say whether `Ops CI` covers the `deployment create` call that `deploy` makes, or which role may delete a deployment, which `cleanup` and `scheduled-cleanup` do. If one of those answers 403, check the service account's roles first.
+`Ops CI` may not read tasks. Seen on 5 November 2026 with zad-cli 0.12.0: with an `Ops CI` token, `zad deployment update-image` replaced the image, and then failed with HTTP 403 while waiting on the task, with a message that the roles do not grant `task.read` in the project. With zad-cli directly, pass `--no-wait` to skip that wait. These actions wait on their tasks and have no input to skip it, so with `Ops CI` expect that 403 even when the change went through.
+
+Not verified: whether `Ops CI` covers the `deployment create` call that `deploy` makes, and which role may delete a deployment, which `cleanup` and `scheduled-cleanup` do. If one of those answers 403, check the service account's roles first.
 
 ### GitHub Tokens
 

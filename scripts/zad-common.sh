@@ -15,7 +15,7 @@ install_zad_cli() {
   echo "Installing zad-cli@${ZAD_CLI_VERSION}..."
 
   # The release carries a standalone binary per platform: one download, no Python, no
-  # build. Seconds instead of the minute or two `uv tool install` from a git URL takes,
+  # build. Seconds instead of the minute or two a source install takes,
   # and it is the same artefact people install by hand, so a pipeline and a laptop run
   # the same bytes. Falls back to the source install when there is no binary for this
   # platform or the download fails, because a slower install beats a failed one.
@@ -32,8 +32,8 @@ install_zad_cli() {
   if [ -n "$ZAD_ASSET" ]; then
     ZAD_BASE="https://github.com/RijksICTGilde/zad-cli/releases/download/${ZAD_CLI_VERSION}"
     ZAD_TMP=$(mktemp -d)
-    if curl -fsSL "${ZAD_BASE}/${ZAD_ASSET}" -o "${ZAD_TMP}/${ZAD_ASSET}" &&
-       curl -fsSL "${ZAD_BASE}/SHA256SUMS" -o "${ZAD_TMP}/SHA256SUMS"; then
+    if curl -fsSL --retry 3 "${ZAD_BASE}/${ZAD_ASSET}" -o "${ZAD_TMP}/${ZAD_ASSET}" &&
+       curl -fsSL --retry 3 "${ZAD_BASE}/SHA256SUMS" -o "${ZAD_TMP}/SHA256SUMS"; then
       # Verified, not just downloaded: this binary is about to hold a project API key.
       if command -v sha256sum >/dev/null 2>&1; then
         ZAD_SUMCHECK="sha256sum -c SHA256SUMS --ignore-missing"
@@ -54,8 +54,7 @@ install_zad_cli() {
     rm -rf "$ZAD_TMP"
   fi
 
-  if [ "$ZAD_INSTALLED" = "0" ] &&
-     ! uv tool install "git+https://github.com/RijksICTGilde/zad-cli.git@${ZAD_CLI_VERSION}"; then
+  if [ "$ZAD_INSTALLED" = "0" ] && ! install_zad_cli_from_source; then
     echo "::error::Failed to install zad-cli@${ZAD_CLI_VERSION}"
     exit 1
   fi
@@ -80,6 +79,20 @@ install_zad_cli() {
     echo "::error::zad-cli installed but 'zad' command not found in PATH"
     exit 1
   fi
+}
+
+# The release binary is built from zad-cli's uv.lock, so install with those versions: a fresh
+# resolve takes the newest release of every dependency, which the CLI was never run against.
+install_zad_cli_from_source() {
+  local src status=0
+  src=$(mktemp -d) || return 1
+  git -c advice.detachedHead=false clone --quiet --depth 1 --branch "$ZAD_CLI_VERSION" \
+    https://github.com/RijksICTGilde/zad-cli.git "${src}/zad-cli" &&
+    uv export --quiet --project "${src}/zad-cli" --frozen --no-dev --no-emit-project --no-hashes \
+      --output-file "${src}/constraints.txt" &&
+    uv tool install --constraints "${src}/constraints.txt" "${src}/zad-cli" || status=$?
+  rm -rf "$src"
+  return "$status"
 }
 
 # Validate that a value matches the allowed character pattern.

@@ -96,3 +96,29 @@ jobs:
       - name: Lint YAML files
         run: |
           yamllint --strict .
+
+  install-fallback:
+    name: Install Fallback
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          version: "0.12.17"
+          enable-cache: "false"
+
+      - name: Install zad-cli with release downloads refused
+        shell: bash
+        run: |
+          PATH="$PWD/tests/stubs/no-release-download:$PATH"
+          source scripts/zad-common.sh
+          install_zad_cli
+
+      - name: Start the installed CLI
+        run: |
+          test -d "$(uv tool dir)/zad-cli" || { echo "::error::uv did not install zad-cli"; exit 1; }
+          zad version

@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.4.1] - 2026-11-10
+
 ### Fixed
 - Bump zad-cli from v0.12.0 to v0.12.1. When the release binary could not be downloaded, the source install that takes over pulled in the newest Typer, and since Typer 0.27.2 zad-cli v0.12.0 failed at startup with `ImportError: cannot import name 'Abort' from 'typer._click.exceptions'`. The release binary was not affected
 - `deploy`, `cleanup` and `scheduled-cleanup`: the source install that takes over when the zad-cli binary cannot be downloaded uses zad-cli's own lock file, the dependency versions the binary is built from, instead of the newest release of every dependency

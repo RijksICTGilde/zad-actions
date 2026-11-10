@@ -287,7 +287,7 @@ runs:
         ZAD_CMD+=(deployment create "$DEPLOYMENT_NAME" --yes)
 
         # --components was removed in zad-cli v0.10.0, not deprecated: with the pin at
-        # v0.12.0 the old call fails outright rather than warning. -f - takes the same
+        # v0.12.1 the old call fails outright rather than warning. -f - takes the same
         # list as a document on stdin and produces an identical request.
         MANIFEST=""
         if [ "$MULTI_COMPONENT" = "true" ]; then
@@ -366,7 +366,7 @@ runs:
           # `?`: `type == "object"` answers for the document, not for `.pending_rollout`.
           WAITING=$(echo "$RESULT" | jq -r 'if type == "object" then (.pending_rollout.count? // empty) else empty end')
           if [ -z "$WAITING" ]; then
-            # v0.12.0 keeps `pending_rollout` off stdout, so ask for it. Best effort: a
+            # v0.12.1 keeps `pending_rollout` off stdout, so ask for it. Best effort: a
             # count that cannot be read must not fail a deployment that succeeded.
             if PENDING=$(zad --output json project pending 2>/dev/null) &&
                echo "$PENDING" | jq empty 2>/dev/null; then

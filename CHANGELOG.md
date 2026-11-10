@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Bump zad-cli from v0.12.0 to v0.12.1. When the release binary could not be downloaded, the source install that takes over pulled in the newest Typer, and since Typer 0.27.2 zad-cli v0.12.0 failed at startup with `ImportError: cannot import name 'Abort' from 'typer._click.exceptions'`. The release binary was not affected
+
 ### Documentation
 - README: how to deploy to another ZAD cluster, such as staging, with `api-base-url`
 

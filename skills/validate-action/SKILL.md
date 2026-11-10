@@ -65,7 +65,7 @@ Read `README.md` and compare with `<action>/action.yml`:
 - **Inputs table:** Every input in action.yml should appear in README examples or documentation
 - **Outputs table:** Every output in action.yml should be documented
 - **Defaults:** Default values mentioned in README should match action.yml
-- **Version references:** `@v1`, `@v2`, or `@v3` references should match current major version
+- **Version references:** `@vN` references should match the current major version, the major of `version` in `.plugin/plugin.json`
 
 ### 5. Report format
 

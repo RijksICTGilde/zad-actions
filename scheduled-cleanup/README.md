@@ -6,7 +6,7 @@ Automatically finds and cleans up ZAD deployments for closed or merged PRs. Inte
 
 | Name | Required | Default | Description |
 |------|----------|---------|-------------|
-| `api-key` | Yes | - | ZAD API key (`ZAD_API_KEY` secret) |
+| `api-key` | Yes | - | ZAD API token (`ZAD_API_KEY` secret) |
 | `project-id` | Yes | - | ZAD project identifier |
 | `environment-pattern` | No | `^pr-?[0-9]+$` | Regex pattern to match PR environments |
 | `pr-number-pattern` | No | `s/^pr-\{0,1\}//` | Sed expression to extract PR number from environment name |

@@ -212,14 +212,14 @@ jobs:
    - What optional features do
 
 5. **List required secrets** the user must configure:
-   - `ZAD_API_KEY` (always required) — ZAD Operations Manager API key
+   - `ZAD_API_KEY` (always required): a ZAD API token. In the Operations Manager, on the project's **Team** tab under **Leden en tokens**, an `Admin` adds a service account with the role `Developer CI` and makes a token for it. `Developer CI` changes deployments that are not on production and reads as `Viewer`, which covers what the actions read back afterwards (the task and the URLs). For a production deploy use a separate service account, stored as an environment secret: `Ops CI` when the pipeline only replaces the image of an existing deployment, `Ops` otherwise. Not a token of a human member, which carries every role that person has. Every token expires (30 days by default, 365 at most), so the secret needs replacing before then
    - `GITHUB_ADMIN_TOKEN` (if `delete-github-env` is used) — PAT with repo admin permissions
 
 6. **Output the workflow** as a code block the user can copy, or write directly to `.github/workflows/deploy.yml` if the user confirms.
 
 ## Important notes
 
-- Always use `@v3` for zad-actions references (current major version)
+- Always use `@v4` for zad-actions references (current major version)
 - The `github-token` input defaults to `${{ github.token }}` so it doesn't need to be passed explicitly
 - `pull-requests: write` permission is needed for `comment-on-pr` and `delete-pr-comment`
 - `packages: delete` permission is needed for container deletion (note: different from `packages: write`)

@@ -44,8 +44,8 @@ All three actions retry transient ZAD API errors (000, 429, 500-504) with expone
 | HTTP Code | Diagnosis | Retried? | Fix |
 |-----------|-----------|----------|-----|
 | `000` | Network problem — runner can't reach ZAD API | Yes | Check runner network, verify `api-base-url` is correct. Default: `https://operations-manager.rig.prd1.gn2.quattro.rijksapps.nl/api` |
-| `401` | API key invalid or expired | No | Regenerate `ZAD_API_KEY` in Operations Manager and update the repository secret |
-| `403` | API key lacks permission for this project | No | Verify the API key has access to the specified `project-id`. Request access via Operations Manager |
+| `401` | Token invalid or expired. Every token has an expiry date (30 days by default, 365 at most for a service account), so a 401 on a workflow that used to work usually means the token expired | No | Make a new token for the service account in the Operations Manager (project, **Team** tab, **Leden en tokens**) and update the `ZAD_API_KEY` repository secret |
+| `403` | The token's member lacks the role for this call in this project | No | A token may do what the roles of its member allow. Check the member's roles under **Team**, **Leden en tokens**. For PR environments the service account needs `Developer CI`, which reads as `Viewer`, so reading the task and the URLs afterwards is covered. A redeploy of an existing deployment whose host name actually changes (`domain-format`, `subdomain`, `base-domain`) needs `Ops`; passing the same values does not. On production an image-only redeploy works with `Ops CI`; anything more needs `Ops`. Also check that the token belongs to the project in `project-id` |
 | `404` | Project not found (deploy) / already deleted (cleanup) | No | Check `project-id` spelling. Verify project exists in ZAD Operations Manager |
 | `429` | Rate limited | Yes | Automatically retried. Increase `retry-delay` if persistent |
 | `5xx` | ZAD API server error | Yes | Automatically retried. If persistent after retries, check ZAD Operations Manager status |
@@ -62,7 +62,7 @@ A deployment task is superseded when a newer task covers its deployment scope: t
 | `Deployment: waiting for task <id>, which took over, failed` / `returned no usable JSON` | The wait on the taking-over task itself failed — timeout, auth, or an answer that is not JSON | Check the `::error::` lines under it for the cause. Raise `task-timeout` when the taking-over task legitimately needs longer |
 | `Deployment was handed over 10 times without reaching a final task` | Tasks keep starting in the project, so the chain never reaches one that finishes | Stop the overlapping deploys (add a `concurrency` group) and inspect the project's tasks with `zad task list` |
 | `Deployment was superseded but the result does not name the task that took over` / `the task that took over has an unusable task id` | There is nothing to wait for, so the rollout cannot be reported as finished | Re-run the deploy once the project is quiet. Report it if it repeats — the reference comes from the API |
-| `::warning::Could not read how many changes are waiting to be rolled out` | `zad project pending` did not answer. The cause is in brackets when the CLI gave one; the one worth ruling out is an API key that lacks the right to list the project's pending changes | One-off: none, the step's own verdict stands. Persistent: check the key's access, otherwise a change that is saved but not rolled out stays unnoticed |
+| `::warning::Could not read how many changes are waiting to be rolled out` | `zad project pending` did not answer. The cause is in brackets when the CLI gave one; the one worth ruling out is a token whose member lacks the role to list the project's pending changes | One-off: none, the step's own verdict stands. Persistent: check the roles of the token's member, otherwise a change that is saved but not rolled out stays unnoticed |
 
 ### Deployment readiness errors (wait-for-ready)
 
@@ -139,7 +139,7 @@ ZAD Actions use up to 3 different tokens:
 
 | Input | Purpose | Default | When to customize |
 |-------|---------|---------|-------------------|
-| `api-key` | ZAD Operations Manager API auth | none (required) | Always set as `${{ secrets.ZAD_API_KEY }}` |
+| `api-key` | ZAD Operations Manager API auth | none (required) | Always set as `${{ secrets.ZAD_API_KEY }}`: a token of a service account with `Developer CI` (or `Ops CI`/`Ops` for production) |
 | `github-token` | PR comments, deployment deletion, container deletion | `${{ github.token }}` | Only when you need cross-repo access (use a PAT) |
 | `github-admin-token` | Environment deletion | none (optional) | Required only for `delete-github-env: true`. Must be a PAT with `repo` scope |
 

@@ -109,9 +109,24 @@ jobs:
 
 ## Authentication
 
-### ZAD API Key
+### ZAD API token
 
-Create a ZAD API key via the Operations Manager and store it as `ZAD_API_KEY` in your repository secrets.
+The `api-key` input takes an API token from the Operations Manager, stored as the `ZAD_API_KEY` repository secret. Tokens live on a project's **Team** tab, under **Leden en tokens**. A token belongs to a member of the project, a person or a service account, and may do what that member's roles allow. Changing the roles or removing the member applies to all of its tokens at once.
+
+For a pipeline that deploys and cleans up PR environments:
+
+1. Add a service account to the project and give it the role `Developer CI`.
+2. Make a token for that service account and store it as `ZAD_API_KEY` in your repository secrets. Only an `Admin` of the project can make a token for a service account.
+
+`Developer CI` may create, update and delete deployments that are not on production, and it reads as `Viewer`. That read access is what the actions need after every change: they wait on the task they started, read the deployment's URLs and check for changes that are not rolled out yet.
+
+A redeploy of an existing deployment with `domain-format`, `subdomain` or `base-domain` only asks for `Ops` when a value differs from what is set: changing the host name of an existing deployment is reserved for `Ops`. Passing the same values again is allowed for `Developer CI`.
+
+To deploy to production with `deploy`, use a separate service account and keep its token in a GitHub environment secret of the production environment. A redeploy that only replaces the image works with `Ops CI`; creating a deployment on production, or changing anything besides the image, needs `Ops`. A deployment on production cannot be deleted from a pipeline, because that needs the 2-factor confirmation of a person.
+
+Do not use a token of a human member: it carries every role that person has, `Admin` included. Every token has an expiry date, 30 days by default. A token for a service account can be valid for 365 days at most, a personal token for 90. A 401 from a workflow that used to work usually means the token expired.
+
+An API key from before tokens existed was turned into a token of the service account `project-api`, with the roles `Admin` and `Ops`. It keeps working, but it may do everything in the project; replace it with a service account as above.
 
 ### GitHub Tokens
 
@@ -249,7 +264,7 @@ The actions use the production cluster by default. To use another ZAD cluster, s
     api-base-url: https://zad.staging.rijksapp.dev/api
 ```
 
-Set the same `api-base-url` on `cleanup` and `scheduled-cleanup`, or they look for the deployment on production. API keys and projects exist per cluster: create the key in the Operations Manager of the cluster you deploy to.
+Set the same `api-base-url` on `cleanup` and `scheduled-cleanup`, or they look for the deployment on production. Projects, and with them their members and tokens, exist per cluster: make the token in the Operations Manager of the cluster you deploy to.
 
 ### URL Pattern
 

@@ -45,7 +45,7 @@ All three actions retry transient ZAD API errors (000, 429, 500-504) with expone
 |-----------|-----------|----------|-----|
 | `000` | Network problem — runner can't reach ZAD API | Yes | Check runner network, verify `api-base-url` is correct. Default: `https://operations-manager.rig.prd1.gn2.quattro.rijksapps.nl/api` |
 | `401` | Token invalid or expired. Every token has an expiry date (30 days by default, 365 at most for a service account), so a 401 on a workflow that used to work usually means the token expired | No | Make a new token for the service account in the Operations Manager (project, **Team** tab, **Leden en tokens**) and update the `ZAD_API_KEY` repository secret |
-| `403` | The token's member lacks the role for this call in this project | No | A token may do what the roles of its member allow. Check the member's roles under **Team**, **Leden en tokens**. For PR environments the service account needs `Developer CI` and `Viewer`: `Developer CI` carries no read rights, so without `Viewer` the change goes through and then reading the task (`task.read`) or the URLs (`deployment.read`) answers 403. A redeploy of an existing deployment with `domain-format`, `subdomain` or `base-domain` needs `Ops`. Production needs `Ops`; `Ops CI` does not work with these actions. Also check that the token belongs to the project in `project-id` |
+| `403` | The token's member lacks the role for this call in this project | No | A token may do what the roles of its member allow. Check the member's roles under **Team**, **Leden en tokens**. For PR environments the service account needs `Developer CI`, which reads as `Viewer`, so reading the task and the URLs afterwards is covered. A redeploy of an existing deployment whose host name actually changes (`domain-format`, `subdomain`, `base-domain`) needs `Ops`; passing the same values does not. On production an image-only redeploy works with `Ops CI`; anything more needs `Ops`. Also check that the token belongs to the project in `project-id` |
 | `404` | Project not found (deploy) / already deleted (cleanup) | No | Check `project-id` spelling. Verify project exists in ZAD Operations Manager |
 | `429` | Rate limited | Yes | Automatically retried. Increase `retry-delay` if persistent |
 | `5xx` | ZAD API server error | Yes | Automatically retried. If persistent after retries, check ZAD Operations Manager status |
@@ -139,7 +139,7 @@ ZAD Actions use up to 3 different tokens:
 
 | Input | Purpose | Default | When to customize |
 |-------|---------|---------|-------------------|
-| `api-key` | ZAD Operations Manager API auth | none (required) | Always set as `${{ secrets.ZAD_API_KEY }}`: a token of a service account with `Developer CI` and `Viewer` (or `Ops` for production) |
+| `api-key` | ZAD Operations Manager API auth | none (required) | Always set as `${{ secrets.ZAD_API_KEY }}`: a token of a service account with `Developer CI` (or `Ops CI`/`Ops` for production) |
 | `github-token` | PR comments, deployment deletion, container deletion | `${{ github.token }}` | Only when you need cross-repo access (use a PAT) |
 | `github-admin-token` | Environment deletion | none (optional) | Required only for `delete-github-env: true`. Must be a PAT with `repo` scope |
 

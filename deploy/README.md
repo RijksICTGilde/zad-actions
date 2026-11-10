@@ -151,7 +151,7 @@ deploy:
 
 | Feature          | Required Permission       |
 |------------------|---------------------------|
-| Basic deployment | ZAD API token: `Developer CI` and `Viewer`, or `Ops` for production |
+| Basic deployment | ZAD API token: `Developer CI`, or `Ops CI`/`Ops` for production |
 | PR commenting    | `pull-requests: write`    |
 
 For PR commenting, ensure your job has the required permission (the token defaults to `github.token`):

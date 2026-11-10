@@ -17,7 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Documentation
 - README: how to deploy to another ZAD cluster, such as staging, with `api-base-url`
 - README, SECURITY.md, the action inputs and the skills describe ZAD API tokens as the Operations Manager has them now: a token belongs to a member of the project and may do what that member's roles allow
-- For PR environments they advise a service account with `Developer CI` and `Viewer`. `Developer CI` alone cannot read, so the actions' wait on the task and their URL lookup answer 403 after a change that went through. Production needs `Ops`; `Ops CI` does not work with these actions
+- For PR environments they advise a service account with `Developer CI`, which reads as `Viewer`, so the actions can wait on the task and look up the URLs afterwards. For production: `Ops CI` redeploys the image of an existing deployment, anything more needs `Ops`
 - The 401 and 403 errors from the actions name the expiry and the roles a pipeline needs
 - `generate-workflow` uses `@v4`, the current major, instead of `@v3`; SECURITY.md lists v4 as supported
 

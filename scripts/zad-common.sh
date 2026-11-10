@@ -256,7 +256,7 @@ report_zad_error() {
       ;;
     403)
       echo "::error::${operation} failed: Access denied (HTTP 403)"
-      echo "::error::The token's member may lack the role for this in project '$project_id'; a pipeline needs Developer CI and Viewer. Roles are set under the project's Team tab, Leden en tokens"
+      echo "::error::The token's member may lack the role for this in project '$project_id'; a pipeline needs Developer CI (which reads as Viewer), or Ops CI/Ops on production. Roles are set under the project's Team tab, Leden en tokens"
       ;;
     404)
       echo "::error::${operation} failed: Not found (HTTP 404)"

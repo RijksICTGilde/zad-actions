@@ -22,8 +22,8 @@ If you discover a security vulnerability in ZAD Actions, please report it respon
 ### API Token Handling
 
 - Always store your ZAD API token as a GitHub secret (`ZAD_API_KEY`)
-- Use a token of a service account with `Developer CI` and `Viewer` for PR environments, not a token of a human member, which carries every role that person has
-- Keep a token that may deploy to production (a service account with `Ops`) in a secret of the production environment, not in a repository secret
+- Use a token of a service account with `Developer CI` (which reads as `Viewer`) for PR environments, not a token of a human member, which carries every role that person has
+- Keep a token that may deploy to production (a service account with `Ops CI` for image redeploys, or `Ops` for everything else) in a secret of the production environment, not in a repository secret
 - Every token expires, a token of a service account after 365 days at most; replace the secret before then
 - Never commit tokens to your repository
 - The action uses the token via environment variables and never logs it

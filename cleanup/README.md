@@ -145,7 +145,7 @@ permissions:
 
 | Operation | Token | Permission Required |
 |-----------|-------|---------------------|
-| Delete ZAD deployment | ZAD API token | `Developer CI` and `Viewer` (not on production) |
+| Delete ZAD deployment | ZAD API token | `Developer CI` (not on production; production needs `Ops`) |
 | Delete GitHub deployments | `github-token` | `deployments: write` |
 | Delete GitHub environment | `github-admin-token` | Repository admin access |
 | Delete container image | `github-token` | `packages: delete` |

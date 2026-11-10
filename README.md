@@ -115,14 +115,14 @@ The `api-key` input takes an API token from the Operations Manager, stored as th
 
 For a pipeline that deploys and cleans up PR environments:
 
-1. Add a service account to the project and give it two roles: `Developer CI` and `Viewer`.
+1. Add a service account to the project and give it the role `Developer CI`.
 2. Make a token for that service account and store it as `ZAD_API_KEY` in your repository secrets. Only an `Admin` of the project can make a token for a service account.
 
-`Developer CI` may create, update and delete deployments that are not on production, but it carries no read rights. The actions read back after every change: they wait on the task they started, read the deployment's URLs and check for changes that are not rolled out yet. Without `Viewer` those reads answer 403, and `deploy` fails even though the deployment went through.
+`Developer CI` may create, update and delete deployments that are not on production, and it reads as `Viewer`. That read access is what the actions need after every change: they wait on the task they started, read the deployment's URLs and check for changes that are not rolled out yet.
 
-With `Developer CI`, a redeploy of an existing deployment with `domain-format`, `subdomain` or `base-domain` set answers 403: changing the host name of an existing deployment is reserved for `Ops`. Set those inputs only for the first deploy, or leave them out.
+A redeploy of an existing deployment with `domain-format`, `subdomain` or `base-domain` only asks for `Ops` when a value differs from what is set: changing the host name of an existing deployment is reserved for `Ops`. Passing the same values again is allowed for `Developer CI`.
 
-To deploy to production with `deploy`, use a separate service account with `Ops`, and keep its token in a GitHub environment secret of the production environment. `Ops CI` does not work with these actions: it only replaces the image of a deployment, a call these actions do not make. A deployment on production cannot be deleted from a pipeline, because that needs the 2-factor confirmation of a person.
+To deploy to production with `deploy`, use a separate service account and keep its token in a GitHub environment secret of the production environment. A redeploy that only replaces the image works with `Ops CI`; creating a deployment on production, or changing anything besides the image, needs `Ops`. A deployment on production cannot be deleted from a pipeline, because that needs the 2-factor confirmation of a person.
 
 Do not use a token of a human member: it carries every role that person has, `Admin` included. Every token has an expiry date, 30 days by default. A token for a service account can be valid for 365 days at most, a personal token for 90. A 401 from a workflow that used to work usually means the token expired.
 

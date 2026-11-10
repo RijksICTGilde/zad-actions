@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+# Stub curl for the source-install test. Refuses a release download the way curl reports
+# GitHub's 503 under -f, and hands every other request to the real curl.
+set -u
+
+for ARG in "$@"; do
+  case "$ARG" in
+    */releases/download/*)
+      echo "curl: (22) The requested URL returned error: 503" >&2
+      exit 22
+      ;;
+  esac
+done
+
+# The real curl is the next one on PATH, not this file again.
+HERE=$(cd "$(dirname "$0")" && pwd)
+CLEAN=""
+IFS=: read -ra DIRS <<< "$PATH"
+for DIR in "${DIRS[@]}"; do
+  [ "$DIR" = "$HERE" ] || CLEAN="${CLEAN:+$CLEAN:}$DIR"
+done
+PATH="$CLEAN"
+exec curl "$@"
